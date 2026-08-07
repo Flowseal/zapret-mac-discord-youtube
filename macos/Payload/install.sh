@@ -45,14 +45,3 @@ while ! /sbin/ifconfig utun50 >/dev/null 2>&1; do
     fi
     sleep 0.1
 done
-
-CONSOLE_USER=$(/usr/bin/stat -f '%Su' /dev/console)
-if [ -n "$CONSOLE_USER" ] && [ "$CONSOLE_USER" != root ]; then
-    if ! /usr/bin/su -l "$CONSOLE_USER" -c "/usr/bin/curl --noproxy '*' -4 --connect-timeout 5 --max-time 8 -fsS -o /dev/null https://example.com/"; then
-        /bin/launchctl bootout system/io.github.flowseal.zapretmac >/dev/null 2>&1 || true
-        /sbin/pfctl -a "$ANCHOR" -F all >/dev/null 2>&1 || true
-        /usr/bin/pkill -9 -x utunws >/dev/null 2>&1 || true
-        echo 'network self-test failed' >&2
-        exit 1
-    fi
-fi

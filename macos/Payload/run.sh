@@ -115,27 +115,10 @@ printf '%s\n' \
   'pass out quick route-to (utun50 10.77.0.2) inet proto udp from any to any port {443,19294:19344,50000:50100} user { >root } no state' \
   | /sbin/pfctl -a "$ANCHOR" -f -
 
-CONSOLE_USER=$(/usr/bin/stat -f '%Su' /dev/console)
-if [ -n "$CONSOLE_USER" ] && [ "$CONSOLE_USER" != root ]; then
-    if ! /usr/bin/su -l "$CONSOLE_USER" -c "/usr/bin/curl --noproxy '*' -4 --connect-timeout 5 --max-time 8 -fsS -o /dev/null https://example.com/"; then exit 0; fi
-fi
-
-HEALTH_TICKS=0
-HEALTH_FAILURES=0
 while kill -0 "$ENGINE_PID" 2>/dev/null; do
     sleep 2
     CURRENT_IFACE=$(/sbin/route -n get default 2>/dev/null | /usr/bin/awk '/interface:/{print $2; exit}')
     CURRENT_GATEWAY=$(/sbin/route -n get default 2>/dev/null | /usr/bin/awk '/gateway:/{print $2; exit}')
     if [ "$CURRENT_IFACE" != "$PHYSICAL_IFACE" ] || [ "$CURRENT_GATEWAY" != "$GATEWAY" ]; then exit 1; fi
-    HEALTH_TICKS=$((HEALTH_TICKS + 1))
-    if [ "$HEALTH_TICKS" -ge 15 ] && [ -n "$CONSOLE_USER" ] && [ "$CONSOLE_USER" != root ]; then
-        HEALTH_TICKS=0
-        if /usr/bin/su -l "$CONSOLE_USER" -c "/usr/bin/curl --noproxy '*' -4 --connect-timeout 4 --max-time 7 -fsS -o /dev/null https://example.com/"; then
-            HEALTH_FAILURES=0
-        else
-            HEALTH_FAILURES=$((HEALTH_FAILURES + 1))
-            if [ "$HEALTH_FAILURES" -ge 2 ]; then exit 0; fi
-        fi
-    fi
 done
 exit 1
