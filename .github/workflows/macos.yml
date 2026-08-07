@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Build
-        run: ./macos/build.sh
+        run: bash ./macos/build.sh
       - name: Verify architectures
         run: |
           lipo -archs build/macos/ZapretMac.app/Contents/MacOS/ZapretMac
