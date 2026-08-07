@@ -1,0 +1,58 @@
+name: Release macOS artifact
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, e.g. v1.0.0"
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Find latest successful macOS Universal run
+        id: find-run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          RUN_ID=$(gh api \
+            "repos/${{ github.repository }}/actions/workflows/macos.yml/runs?status=success&per_page=1" \
+            --jq '.workflow_runs[0].id')
+
+          if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
+            echo "No successful workflow run found"
+            exit 1
+          fi
+
+          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
+          echo "Using workflow run: $RUN_ID"
+
+      - name: Download artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir artifact
+
+          gh run download "${{ steps.find-run.outputs.run_id }}" \
+            --repo "${{ github.repository }}" \
+            --name "ZapretMac-macOS-universal" \
+            --dir artifact
+
+          ls -la artifact
+
+      - name: Create release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ inputs.tag }}" \
+            artifact/ZapretMac-macOS-universal.zip \
+            --repo "${{ github.repository }}" \
+            --title "${{ inputs.tag }}" \
+            --generate-notes
