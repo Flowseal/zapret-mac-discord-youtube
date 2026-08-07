@@ -18,6 +18,9 @@
 #include "helpers.h"
 #include "params.h"
 #include "nfqws.h"
+#ifdef __APPLE__
+#include "macsend.h"
+#endif
 
 #ifdef __CYGWIN__
 #include <wlanapi.h>
@@ -1599,8 +1602,12 @@ static void rawsend_clean_sock(int *sock)
 }
 void rawsend_cleanup(void)
 {
+#ifdef __APPLE__
+	macsend_cleanup();
+#else
 	rawsend_clean_sock(&rawsend_sock4);
 	rawsend_clean_sock(&rawsend_sock6);
+#endif
 }
 static int *rawsend_family_sock(sa_family_t family)
 {
@@ -1773,11 +1780,20 @@ bool rawsend_preinit(bool bind_fix4, bool bind_fix6)
 {
 	b_bind_fix4 = bind_fix4;
 	b_bind_fix6 = bind_fix6;
+#ifdef __APPLE__
+	return macsend_preinit();
+#else
 	// allow ipv6 disabled systems
 	return rawsend_socket(AF_INET)!=-1 && (rawsend_socket(AF_INET6)!=-1 || errno==EAFNOSUPPORT);
+#endif
 }
 bool rawsend(const struct sockaddr* dst,uint32_t fwmark,const char *ifout,const void *data,size_t len)
 {
+#ifdef __APPLE__
+	(void)fwmark;
+	(void)ifout;
+	return macsend_packet(dst->sa_family, data, len);
+#else
 	ssize_t bytes;
 	int sock=rawsend_socket(dst->sa_family);
 	if (sock==-1) return false;
@@ -1847,6 +1863,7 @@ nofix:
 		return false;
 	}
 	return true;
+#endif
 #endif
 }
 

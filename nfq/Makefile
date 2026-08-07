@@ -35,11 +35,11 @@ bsd: $(SRC_FILES)
 	$(CC) -s $(CFLAGS) $(CFLAGS_BSD) -o dvtws $(SRC_FILES) $(LIBS_BSD) $(LDFLAGS) $(LDFLAGS_BSD)
 
 mac: $(SRC_FILES)
-	$(CC) $(CFLAGS) $(CFLAGS_BSD) -o dvtwsa $(SRC_FILES) -target arm64-apple-macos10.8 $(LIBS_BSD) $(LDFLAGS) $(LDFLAGS_MAC)
-	$(CC) $(CFLAGS) $(CFLAGS_BSD) -o dvtwsx $(SRC_FILES) -target x86_64-apple-macos10.8 $(LIBS_BSD) $(LDFLAGS) $(LDFLAGS_MAC)
-	strip dvtwsa dvtwsx
-	lipo -create -output dvtws dvtwsx dvtwsa
-	rm -f dvtwsx dvtwsa
+	$(CC) $(CFLAGS) $(CFLAGS_BSD) -isysroot "$(SDKROOT)" -o utunwsa $(SRC_FILES) -target arm64-apple-macos14.0 $(LIBS_BSD) $(LDFLAGS) $(LDFLAGS_MAC)
+	$(CC) $(CFLAGS) $(CFLAGS_BSD) -isysroot "$(SDKROOT)" -o utunwsx $(SRC_FILES) -target x86_64-apple-macos14.0 $(LIBS_BSD) $(LDFLAGS) $(LDFLAGS_MAC)
+	strip utunwsa utunwsx
+	lipo -create -output utunws utunwsx utunwsa
+	rm -f utunwsx utunwsa
 
 cygwin64:
 	$(CC) -s $(CFLAGS) $(CFLAGS_CYGWIN) -o winws $(SRC_FILES) $(LIBS_CYGWIN) $(LIBS_CYGWIN64) $(RES_CYGWIN64) $(LDFLAGS) $(LDFLAGS_WIN)
@@ -48,4 +48,4 @@ cygwin32:
 cygwin: cygwin64
 
 clean:
-	rm -f nfqws dvtws winws.exe
+	rm -f nfqws dvtws utunws winws.exe

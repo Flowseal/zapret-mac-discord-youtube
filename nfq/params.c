@@ -10,7 +10,9 @@
 #include "pools.h"
 #include "desync.h"
 
-#ifdef BSD
+#ifdef __APPLE__
+const char *progname = "utunws";
+#elif defined(BSD)
 const char *progname = "dvtws";
 #elif defined(__CYGWIN__)
 const char *progname = "winws";

@@ -1,0 +1,28 @@
+name: macOS Universal
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+      - main
+    tags:
+      - "v*"
+  pull_request:
+
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: ./macos/build.sh
+      - name: Verify architectures
+        run: |
+          lipo -archs build/macos/ZapretMac.app/Contents/MacOS/ZapretMac
+          lipo -archs build/macos/ZapretMac.app/Contents/Resources/Payload/bin/utunws
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ZapretMac-macOS-universal
+          path: dist/ZapretMac-macOS-universal.zip
+          if-no-files-found: error

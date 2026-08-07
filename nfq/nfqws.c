@@ -11,6 +11,9 @@
 #include "ipset.h"
 #include "gzip.h"
 #include "pools.h"
+#ifdef __APPLE__
+#include "macos_utun.h"
+#endif
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -376,6 +379,113 @@ err:
 	wlan_info_deinit();
 #endif
 	return 1;
+}
+
+#elif defined(__APPLE__)
+
+static int utun_main(void)
+{
+	uint8_t frame[65540] __attribute__((aligned));
+	char ifname[64] = {0};
+	const char *physical_iface = getenv("ZAPRET_IFACE");
+	unsigned int id = 0;
+	FILE *Fpid = NULL;
+
+	if (*params.pidfile && !(Fpid = fopen(params.pidfile, "w")))
+	{
+		DLOG_PERROR("create pidfile");
+		return 1;
+	}
+
+	DLOG_CONDUP("opening macOS utun interface\n");
+	int fd = macos_utun_open(ifname, sizeof(ifname));
+	if (fd < 0)
+	{
+		DLOG_PERROR("open utun");
+		if (Fpid) fclose(Fpid);
+		return 1;
+	}
+	DLOG_CONDUP("utun interface: %s\n", ifname);
+	if (!rawsend_preinit(false, false))
+	{
+		DLOG_PERROR("initialize BPF sender");
+		if (Fpid) fclose(Fpid);
+		close(fd);
+		return 1;
+	}
+
+	if (params.droproot && !droproot(params.uid, params.user, params.gid, params.gid_count))
+	{
+		if (Fpid) fclose(Fpid);
+		close(fd);
+		return 1;
+	}
+	print_id();
+	if (params.droproot && !test_list_files())
+	{
+		if (Fpid) fclose(Fpid);
+		close(fd);
+		return 1;
+	}
+	if (params.daemon) daemonize();
+	if (Fpid)
+	{
+		if (fprintf(Fpid, "%d", getpid()) <= 0)
+		{
+			DLOG_PERROR("write pidfile");
+			fclose(Fpid);
+			close(fd);
+			return 1;
+		}
+		fclose(Fpid);
+	}
+
+	pre_desync();
+	for (;;)
+	{
+		ssize_t rd = read(fd, frame, sizeof(frame));
+		if (rd < 0)
+		{
+			if (errno == EINTR) continue;
+			DLOG_PERROR("read utun");
+			close(fd);
+			return 1;
+		}
+		if (rd <= 4) continue;
+
+		uint8_t *packet = frame + 4;
+		size_t len = (size_t)rd - 4;
+		uint8_t version = packet[0] >> 4;
+		if (version != 4 && version != 6) continue;
+
+		ReloadCheck();
+		uint32_t mark = 0;
+		DLOG("\npacket: id=%u len=%zu outbound utun\n", id, len);
+		uint8_t verdict = processPacketData(&mark, ifname, physical_iface, packet, &len);
+		switch (verdict & VERDICT_MASK)
+		{
+			case VERDICT_PASS:
+			case VERDICT_MODIFY:
+			{
+				struct sockaddr_storage dst;
+				memset(&dst, 0, sizeof(dst));
+				if (version == 4)
+					extract_endpoints((const struct ip *)packet, NULL, NULL, NULL, NULL, &dst);
+				else
+					extract_endpoints(NULL, (const struct ip6_hdr *)packet, NULL, NULL, NULL, &dst);
+				if (!rawsend((const struct sockaddr *)&dst, mark, physical_iface, packet, len))
+				{
+					DLOG_PERROR("BPF reinject");
+					close(fd);
+					return 1;
+				}
+				break;
+			}
+			default:
+				DLOG("packet: id=%u drop\n", id);
+		}
+		id++;
+	}
 }
 
 #elif defined(BSD)
@@ -1767,7 +1877,7 @@ static void exithelp(void)
 		" --comment=any_text\n"
 #ifdef __linux__
 		" --qnum=<nfqueue_number>\n"
-#elif defined(BSD)
+#elif defined(BSD) && !defined(__APPLE__)
 		" --port=<port>\t\t\t\t\t\t; divert port\n"
 #endif
 		" --daemon\t\t\t\t\t\t; daemonize\n"
@@ -3451,7 +3561,7 @@ int main(int argc, char **argv)
 		DLOG_ERR("Need queue number (--qnum)\n");
 		exit_clean(1);
 	}
-#elif defined(BSD)
+#elif defined(BSD) && !defined(__APPLE__)
 	if (!params.port)
 	{
 		DLOG_ERR("Need divert port (--port)\n");
@@ -3621,6 +3731,8 @@ int main(int argc, char **argv)
 
 #ifdef __linux__
 	result = nfq_main();
+#elif defined(__APPLE__)
+	result = utun_main();
 #elif defined(BSD)
 	result = dvt_main();
 #elif defined(__CYGWIN__)

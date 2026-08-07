@@ -3,6 +3,7 @@ ip2net/ip2net
 mdig/mdig
 nfq/dvtws
 nfq/nfqws
+nfq/utunws
 nfq/winws.exe
 nfq/WinDivert*
 tpws/tpws
@@ -11,3 +12,5 @@ ipset/zapret-ip*.txt
 ipset/zapret-ip*.gz
 ipset/zapret-hosts*.txt
 ipset/zapret-hosts*.gz
+/build
+/dist
