@@ -41,7 +41,5 @@ GitHub Actions workflow `.github/workflows/macos.yml` собирает тот ж
 #### Принудительная остановка
 
 ```bash
-sudo launchctl disable system/io.github.flowseal.zapretmac; sudo launchctl bootout system/io.github.flowseal.zapretmac 2>/dev/null; sudo pfctl -a com.apple/zapret-macos -F all; sudo pkill -9 -x utunws 2>/dev/null; true
+sudo "/Library/Application Support/ZapretMac/stop.sh"
 ```
-
-
