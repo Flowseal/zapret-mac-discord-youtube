@@ -137,8 +137,7 @@ bool macsend_packet(sa_family_t family, const void *packet, size_t length)
 	if (family == AF_INET)
 	{
 		struct ip *ip = (struct ip *)(frame + ETHER_HDR_LEN);
-		if (!(getenv("ZAPRET_KEEP_ZERO_IP_CSUM") && ip->ip_sum == 0))
-			ip4_fix_checksum(ip);
+		ip4_fix_checksum(ip);
 	}
 	size_t frame_length = ETHER_HDR_LEN + length;
 	return write(bpf_fd, frame, frame_length) == (ssize_t)frame_length;

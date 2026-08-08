@@ -87,11 +87,6 @@ export ZAPRET_IFACE="$PHYSICAL_IFACE"
 export ZAPRET_GATEWAY_MAC="$GATEWAY_MAC"
 export ZAPRET_GATEWAY6_MAC="$GATEWAY6_MAC"
 export ZAPRET_UTUN_UNIT=51
-if [ "$STRATEGY" = general-simple-fake ]; then
-    export ZAPRET_KEEP_ZERO_IP_CSUM=1
-else
-    unset ZAPRET_KEEP_ZERO_IP_CSUM
-fi
 "$BASE/bin/utunws" @/var/run/zapret-macos.conf >>"$BASE/engine.log" 2>&1 &
 ENGINE_PID=$!
 
