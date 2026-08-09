@@ -8,13 +8,20 @@
 
 Стратегии перенесены как есть из [сборки Windows](https://github.com/Flowseal/zapret-discord-youtube/). GameFilter вырезан. В текущей версии стратегии захардкожены, переключение IPSet/изменение списков требует перезапуска.
 
-## Списки
+## Установка
+
+- Скачайте `ZapretMac-macOS-universal.zip` из Assets с последнего релиза отсюда: https://github.com/Flowseal/zapret-mac-discord-youtube/releases
+- Откройте скачанный файл, в появившемся предупреждении нажмите **Done** или **OK**
+  - В новых версиях macOS можно разрешить открытие приложения через контекстное меню (ПКМ по файлу) -> **Open** (**Открыть**) -> **Open** (**Открыть**). Если это не ваш случай, то воспользуйтесь инструкцией ниже
+  - Зайдите в **System Settings** (**Системные настройки**) -> **Privacy & Security** (**Конфиденциальность и безопасность**) -> пролистайте вниз -> нажмите кнопку **Open Anyway** (**Подтвердить вход**)
+
+### Списки
 
 При первом запуске меню создаёт папку `~/Library/Application Support/ZapretMac/lists`. Исходные `list-general.txt`, `list-google.txt`, `list-exclude.txt`, `ipset-exclude.txt` и загруженный `ipset-all.txt` взяты из из [сборки Windows](https://github.com/Flowseal/zapret-discord-youtube/).
 
 Пользовательские домены добавляются в `list-general-user.txt`. Поддомены учитываются автоматически. Исключения доменов добавляются в `list-exclude-user.txt`, исключения IP и подсетей — в `ipset-exclude-user.txt`.
 
-Режимы IPSet:
+### Режимы IPSet:
 
 - `none` не применяет дополнительный обход по IP;
 - `loaded` использует `ipset-all.txt`;
@@ -34,7 +41,7 @@
 
 GitHub Actions workflow `.github/workflows/macos.yml` собирает тот же universal-архив
 
-### Прочее
+## Прочее
 
 Пункт "Выход" закрывает только приложение строки меню. Запущенный сервис продолжает работать до выбора "Остановить".
 
