@@ -12,6 +12,7 @@
 --filter-udp=19294-19344,50000-50100
 --filter-l7=discord,stun,unknown
 --dpi-desync=fake
+--dpi-desync-any-protocol=1
 --dpi-desync-fake-discord="@BASE@/bin/quic_initial_www_google_com.bin"
 --dpi-desync-fake-discord="@BASE@/bin/ACTIVE_DISCORD_UDP.bin"
 --dpi-desync-fake-stun="@BASE@/bin/ACTIVE_DISCORD_UDP.bin"

@@ -50,7 +50,7 @@
 --dpi-desync-fooling=ts
 --dpi-desync-repeats=8
 --dpi-desync-split-seqovl-pattern="@BASE@/bin/tls_clienthello_max_ru.bin"
---dpi-desync-fake-tls="@BASE@/bin/stun.bin"
+--dpi-desync-fake-tls="@BASE@/bin/stun2.bin"
 --dpi-desync-fake-tls="@BASE@/bin/tls_clienthello_max_ru.bin"
 --dpi-desync-fake-http="@BASE@/bin/tls_clienthello_max_ru.bin"
 --new
@@ -76,6 +76,6 @@
 --dpi-desync-fooling=ts
 --dpi-desync-repeats=8
 --dpi-desync-split-seqovl-pattern="@BASE@/bin/tls_clienthello_max_ru.bin"
---dpi-desync-fake-tls="@BASE@/bin/stun.bin"
+--dpi-desync-fake-tls="@BASE@/bin/stun2.bin"
 --dpi-desync-fake-tls="@BASE@/bin/tls_clienthello_max_ru.bin"
 --dpi-desync-fake-http="@BASE@/bin/tls_clienthello_max_ru.bin"
