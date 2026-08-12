@@ -94,6 +94,7 @@ typedef struct
 
 	t_reassemble reasm_orig;
 	struct rawpacket_tailhead delayed;
+	bool delayed_first_gap;
 } t_ctrack;
 
 typedef struct

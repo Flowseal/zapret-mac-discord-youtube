@@ -552,6 +552,7 @@ static void reasm_orig_stop(t_ctrack *ctrack, const char *dlog_msg)
 			ReasmClear(&ctrack->reasm_orig);
 		}
 		send_delayed(ctrack);
+		ctrack->delayed_first_gap = false;
 	}
 }
 static void reasm_orig_cancel(t_ctrack *ctrack)
@@ -562,6 +563,30 @@ static void reasm_orig_fin(t_ctrack *ctrack)
 {
 	reasm_orig_stop(ctrack, "reassemble session finished\n");
 }
+
+#ifdef __APPLE__
+static void reasm_orig_feed_delayed(t_ctrack *ctrack)
+{
+	bool fed;
+	do
+	{
+		fed = false;
+		struct rawpacket *rp;
+		TAILQ_FOREACH(rp, &ctrack->delayed, next)
+		{
+			struct dissect dis;
+			proto_dissect_l3l4(rp->packet, rp->len, &dis);
+			if (dis.tcp && dis.len_payload && ntohl(dis.tcp->th_seq) == ctrack->reasm_orig.seq)
+			{
+				if (ReasmFeed(&ctrack->reasm_orig, ctrack->reasm_orig.seq, dis.data_payload, dis.len_payload))
+					fed = true;
+				break;
+			}
+		}
+	}
+	while (fed && !ReasmIsFull(&ctrack->reasm_orig));
+}
+#endif
 
 
 static uint8_t ct_new_postnat_fix(const t_ctrack *ctrack, struct ip *ip, struct ip6_hdr *ip6, const struct tcphdr *tcp)
@@ -1417,6 +1442,24 @@ static uint8_t dpi_desync_tcp_packet_play(bool replay, size_t reasm_offset, uint
 		if (!process_desync_interval(dp, ctrack)) goto send_orig;
 	} // !replay
 
+#ifdef __APPLE__
+	if (!replay && ctrack && !bReverse && dis->len_payload && !ctrack->req_seq_present && ReasmIsEmpty(&ctrack->reasm_orig))
+	{
+		uint32_t expected = ctrack->seq0 + 1;
+		uint32_t gap = ntohl(dis->tcp->th_seq) - expected;
+		if ((ctrack->pdcounter_orig == 1 || ctrack->delayed_first_gap) && gap && gap < TCP_MAX_REASM)
+		{
+			verdict_tcp_csum_fix(verdict, dis->tcp, dis->transport_len, dis->ip, dis->ip6);
+			if (rawpacket_queue(&ctrack->delayed, &dst, desync_fwmark, ifin, ifout, dis->data_pkt, dis->len_pkt, dis->len_payload))
+			{
+				ctrack->delayed_first_gap = true;
+				DLOG("DELAY first tcp data gap +%u\n", gap);
+				return VERDICT_DROP;
+			}
+		}
+	}
+#endif
+
 	ttl_orig = dis->ip ? dis->ip->ip_ttl : dis->ip6->ip6_ctlun.ip6_un1.ip6_un1_hlim;
 	ttl_fake = (ctrack_replay && ctrack_replay->desync_autottl) ? ctrack_replay->desync_autottl : (dis->ip6 ? (dp->desync_ttl6 ? dp->desync_ttl6 : ttl_orig) : (dp->desync_ttl ? dp->desync_ttl : ttl_orig));
 	uint16_t flags_orig = get_tcp_flags(dis->tcp);
@@ -1584,7 +1627,14 @@ static uint8_t dpi_desync_tcp_packet_play(bool replay, size_t reasm_offset, uint
 				if (!ReasmIsEmpty(&ctrack->reasm_orig))
 				{
 					verdict_tcp_csum_fix(verdict, dis->tcp, dis->transport_len, dis->ip, dis->ip6);
-					if (rawpacket_queue(&ctrack->delayed, &dst, desync_fwmark, ifin, ifout, dis->data_pkt, dis->len_pkt, dis->len_payload))
+					struct rawpacket *queued;
+#ifdef __APPLE__
+					if (ctrack->delayed_first_gap)
+						queued = rawpacket_queue_head(&ctrack->delayed, &dst, desync_fwmark, ifin, ifout, dis->data_pkt, dis->len_pkt, dis->len_payload);
+					else
+#endif
+						queued = rawpacket_queue(&ctrack->delayed, &dst, desync_fwmark, ifin, ifout, dis->data_pkt, dis->len_pkt, dis->len_payload);
+					if (queued)
 					{
 						DLOG("DELAY desync until reasm is complete (#%u)\n", rawpacket_queue_count(&ctrack->delayed));
 					}
@@ -1594,9 +1644,16 @@ static uint8_t dpi_desync_tcp_packet_play(bool replay, size_t reasm_offset, uint
 						reasm_orig_cancel(ctrack);
 						goto send_orig;
 					}
+#ifdef __APPLE__
+					if (ctrack->delayed_first_gap)
+						reasm_orig_feed_delayed(ctrack);
+#endif
 					if (ReasmIsFull(&ctrack->reasm_orig))
 					{
-						replay_queue(&ctrack->delayed);
+						struct rawpacket_tailhead replay;
+						rawpacket_queue_init(&replay);
+						TAILQ_CONCAT(&replay, &ctrack->delayed, next);
+						replay_queue(&replay);
 						reasm_orig_fin(ctrack);
 					}
 					return VERDICT_DROP;
