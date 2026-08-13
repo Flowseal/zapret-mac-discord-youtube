@@ -1,5 +1,15 @@
 import AppKit
 import Foundation
+import Security
+
+@_silgen_name("AuthorizationExecuteWithPrivileges")
+private func executeWithPrivileges(
+    _ authorization: AuthorizationRef,
+    _ path: UnsafePointer<CChar>,
+    _ flags: AuthorizationFlags,
+    _ arguments: UnsafeMutablePointer<UnsafeMutablePointer<CChar>>,
+    _ pipe: UnsafeMutablePointer<UnsafeMutablePointer<FILE>?>
+) -> OSStatus
 
 struct Strategy {
     let id: String
@@ -27,6 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var strategies: [Strategy] = []
     private var timer: Timer?
     private var busy = false
+    private var authorization: AuthorizationRef?
 
     private var dataRoot: URL {
         fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -55,6 +66,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func menuNeedsUpdate(_ menu: NSMenu) {
         refreshMenu()
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        if let authorization {
+            AuthorizationFree(authorization, [.destroyRights])
+        }
     }
 
     private func initializeUserData() throws {
@@ -199,9 +216,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func toggleService() {
         if isRunning() {
-            runPrivileged(script: "stop.sh", arguments: [], prompt: "Остановить ZapretMac")
+            runPrivileged(script: "stop.sh", arguments: [])
         } else {
-            runPrivileged(script: "install.sh", arguments: [dataRoot.path], prompt: "Установить и запустить ZapretMac")
+            runPrivileged(script: "install.sh", arguments: [dataRoot.path])
         }
     }
 
@@ -229,7 +246,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func applyIfRunning() {
         if isRunning() {
-            runPrivileged(script: "restart.sh", arguments: [], prompt: "Применить настройки ZapretMac")
+            runPrivileged(script: "restart.sh", arguments: [])
         }
     }
 
@@ -241,7 +258,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.terminate(nil)
     }
 
-    private func runPrivileged(script: String, arguments: [String], prompt: String) {
+    private func runPrivileged(script: String, arguments: [String]) {
         if busy { return }
         busy = true
         refreshMenu()
@@ -264,19 +281,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 let command = (["/bin/sh", stagedPayload.appendingPathComponent(script).path] + commandArguments)
                     .map(self.shellQuote)
                     .joined(separator: " ")
-                let source = "do shell script \"\(self.appleScriptEscape(command))\" with administrator privileges with prompt \"\(self.appleScriptEscape(prompt))\""
-                let process = Process()
-                let errorPipe = Pipe()
-                process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-                process.arguments = ["-e", source]
-                process.standardOutput = FileHandle.nullDevice
-                process.standardError = errorPipe
-                try process.run()
-                process.waitUntilExit()
-                if process.terminationStatus != 0 {
-                    let data = errorPipe.fileHandleForReading.readDataToEndOfFile()
-                    let text = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
-                    failure = text?.isEmpty == false ? text : "Операция не выполнена"
+                let result = try self.executePrivileged(command: command + " 2>&1")
+                if result.status != 0 {
+                    failure = result.output.isEmpty ? "Операция не выполнена" : result.output
                     let diagnostics = self.serviceDiagnostics()
                     if !diagnostics.isEmpty {
                         failure = (failure ?? "Операция не выполнена") + "\n\n" + diagnostics
@@ -294,12 +301,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
     }
 
-    private func shellQuote(_ value: String) -> String {
-        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    private func executePrivileged(command: String) throws -> (status: Int32, output: String) {
+        var auth = authorization
+        if auth == nil {
+            let status = kAuthorizationRightExecute.withCString { name in
+                var item = AuthorizationItem(name: name, valueLength: 0, value: nil, flags: 0)
+                return withUnsafeMutablePointer(to: &item) { item in
+                    var rights = AuthorizationRights(count: 1, items: item)
+                    return AuthorizationCreate(&rights, nil, [.interactionAllowed, .extendRights], &auth)
+                }
+            }
+            guard status == errAuthorizationSuccess, let auth else {
+                throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
+            }
+            authorization = auth
+        }
+        guard let auth else { throw NSError(domain: NSOSStatusErrorDomain, code: Int(errAuthorizationInvalidRef)) }
+        let arguments = calloc(3, MemoryLayout<UnsafeMutablePointer<CChar>>.stride)!
+            .bindMemory(to: UnsafeMutablePointer<CChar>.self, capacity: 3)
+        arguments[0] = strdup("-c")!
+        let marker = "ZAPRET_EXIT_STATUS="
+        let wrappedCommand = command + "\nresult=$?\nprintf '\\n" + marker + "%d\\n' \"$result\""
+        arguments[1] = strdup(wrappedCommand)!
+        defer {
+            free(arguments[0])
+            free(arguments[1])
+            free(arguments)
+        }
+        var pipe: UnsafeMutablePointer<FILE>?
+        let executeStatus = "/bin/sh".withCString {
+            executeWithPrivileges(auth, $0, [], arguments, &pipe)
+        }
+        guard executeStatus == errAuthorizationSuccess, let pipe else {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(executeStatus))
+        }
+        var output = Data()
+        var buffer = [UInt8](repeating: 0, count: 4096)
+        while true {
+            let count = fread(&buffer, 1, buffer.count, pipe)
+            if count == 0 { break }
+            output.append(buffer, count: count)
+        }
+        fclose(pipe)
+        var text = String(data: output, encoding: .utf8) ?? ""
+        guard let range = text.range(of: marker, options: .backwards) else { return (1, text) }
+        let statusText = text[range.upperBound...].prefix { $0.isNumber }
+        let exitStatus = Int32(statusText) ?? 1
+        text.removeSubrange(range.lowerBound...)
+        return (exitStatus, text.trimmingCharacters(in: .whitespacesAndNewlines))
     }
 
-    private func appleScriptEscape(_ value: String) -> String {
-        value.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"")
+    private func shellQuote(_ value: String) -> String {
+        "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
     private func serviceDiagnostics() -> String {
