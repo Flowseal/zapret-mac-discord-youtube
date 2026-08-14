@@ -10,6 +10,7 @@
 
 ## Установка
 
+- Выключите другие VPN'ы с туннелированием
 - Установите DNS отличный от стандартного (или настройте его на роутере), например на Google (8.8.8.8/8.8.4.4) или Cloudflare (1.1.1.1/1.0.0.1)
   - Более лучшим решением будет установить DNS over HTTPS через профиль. Например на Google Public DNS отсюда - https://github.com/paulmillr/encrypted-dns
 - Скачайте `ZapretMac-macOS-universal.zip` из Assets с последнего релиза отсюда: https://github.com/Flowseal/zapret-mac-discord-youtube/releases
