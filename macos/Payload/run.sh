@@ -5,6 +5,7 @@ DATA_ROOT=$1
 BASE='/Library/Application Support/ZapretMac'
 ANCHOR=com.apple/zapret-macos
 TOKEN_FILE=/var/run/zapret-macos.pf-token
+KEEPINIT_FILE=/var/db/zapret-macos.keepinit
 ENGINE_PID=
 WATCHDOG_PID=
 
@@ -12,6 +13,10 @@ case "$DATA_ROOT" in
     /Users/*/'Library/Application Support/ZapretMac') ;;
     *) exit 1 ;;
 esac
+
+if [ -s "$KEEPINIT_FILE" ]; then
+    /usr/sbin/sysctl -w net.inet.tcp.keepinit=7000 >/dev/null
+fi
 
 clear_intercept() {
     /sbin/pfctl -a "$ANCHOR" -F all >/dev/null 2>&1 || true
