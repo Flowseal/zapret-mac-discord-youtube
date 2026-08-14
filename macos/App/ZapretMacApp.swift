@@ -32,11 +32,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private let menu = NSMenu()
     private var statusItem: NSStatusItem!
     private var startStopItem = NSMenuItem()
+    private var testItem = NSMenuItem()
     private var strategyItems: [NSMenuItem] = []
     private var ipsetItems: [NSMenuItem] = []
     private var strategies: [Strategy] = []
     private var timer: Timer?
     private var busy = false
+    private var testing = false
+    private var cancellingTest = false
     private var authorization: AuthorizationRef?
 
     private var dataRoot: URL {
@@ -136,6 +139,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.addItem(ipsetRoot)
 
         menu.addItem(.separator())
+        testItem = NSMenuItem(title: "Тест стратегий", action: #selector(testStrategies), keyEquivalent: "")
+        testItem.target = self
+        menu.addItem(testItem)
         let openLists = NSMenuItem(title: "Открыть списки", action: #selector(openLists), keyEquivalent: "")
         openLists.target = self
         menu.addItem(openLists)
@@ -162,6 +168,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             item.isEnabled = !busy
         }
         startStopItem.isEnabled = !busy
+        if testing {
+            let progress = readState(from: dataRoot.appendingPathComponent("strategy-test-progress"))
+            if cancellingTest {
+                testItem.title = "Остановка теста…"
+            } else {
+                testItem.title = progress.isEmpty ? "Остановить" : "Остановить — \(progress)"
+            }
+        } else {
+            testItem.title = "Тест стратегий"
+        }
+        testItem.isEnabled = testing ? !cancellingTest : !busy
     }
 
     private func statusIcon(running: Bool) -> NSImage {
@@ -254,11 +271,63 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSWorkspace.shared.open(dataRoot.appendingPathComponent("lists", isDirectory: true))
     }
 
+    @objc private func testStrategies() {
+        let report = dataRoot.appendingPathComponent("strategy-test.txt")
+        let cancel = dataRoot.appendingPathComponent("strategy-test-cancel")
+        if testing {
+            do {
+                try Data().write(to: cancel, options: .atomic)
+                cancellingTest = true
+                refreshMenu()
+            } catch {
+                showError(error.localizedDescription)
+            }
+            return
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.alertStyle = .informational
+        alert.messageText = "Тест стратегий"
+        alert.informativeText = "Проверка будет выполняться в фоне, повторное нажатие остановит тест."
+        alert.addButton(withTitle: "Запустить")
+        alert.addButton(withTitle: "Отмена")
+        guard alert.runModal() == .alertFirstButtonReturn else { return }
+        try? fileManager.removeItem(at: report)
+        try? fileManager.removeItem(at: cancel)
+        testing = true
+        cancellingTest = false
+        runPrivileged(
+            script: "test-strategies.sh",
+            arguments: [dataRoot.path, String(getuid()), String(getgid())]
+        ) { [weak self] failure in
+            guard let self else { return }
+            let wasCancelled = self.cancellingTest
+            self.testing = false
+            self.cancellingTest = false
+            try? self.fileManager.removeItem(at: cancel)
+            self.refreshMenu()
+            guard failure == nil else { return }
+            if wasCancelled {
+                self.showInformation("Тест остановлен. Настройки восстановлены.")
+                return
+            }
+            guard let text = try? String(contentsOf: report, encoding: .utf8) else {
+                self.showError("Отчёт тестирования не найден")
+                return
+            }
+            let best = text.split(whereSeparator: \.isNewline)
+                .first { $0.hasPrefix("Лучшая:") }
+                .map(String.init) ?? "Тест завершён"
+            NSWorkspace.shared.open(report)
+            self.showInformation(best)
+        }
+    }
+
     @objc private func quitApp() {
         NSApp.terminate(nil)
     }
 
-    private func runPrivileged(script: String, arguments: [String]) {
+    private func runPrivileged(script: String, arguments: [String], completion: ((String?) -> Void)? = nil) {
         if busy { return }
         busy = true
         refreshMenu()
@@ -273,7 +342,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 try self.fileManager.createDirectory(at: stagingRoot, withIntermediateDirectories: true)
                 try self.fileManager.copyItem(at: payload, to: stagedPayload)
                 var commandArguments = [stagedPayload.path]
-                if script == "install.sh" {
+                if script == "install.sh" || script == "test-strategies.sh" {
                     commandArguments = [stagedPayload.path] + dataArguments
                 } else {
                     commandArguments = dataArguments
@@ -297,6 +366,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
                 self.busy = false
                 self.refreshMenu()
                 if let failure { self.showError(failure) }
+                completion?(failure)
             }
         }
     }
@@ -372,6 +442,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             NSApp.activate(ignoringOtherApps: true)
             let alert = NSAlert()
             alert.alertStyle = .critical
+            alert.messageText = "ZapretMac"
+            alert.informativeText = message
+            alert.runModal()
+        }
+    }
+
+    private func showInformation(_ message: String) {
+        DispatchQueue.main.async {
+            NSApp.activate(ignoringOtherApps: true)
+            let alert = NSAlert()
+            alert.alertStyle = .informational
             alert.messageText = "ZapretMac"
             alert.informativeText = message
             alert.runModal()

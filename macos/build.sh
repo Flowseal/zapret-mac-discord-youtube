@@ -21,7 +21,7 @@ CLANG=$(/usr/bin/xcrun -f clang)
 /bin/cp "$ROOT/macos/Info.plist" "$CONTENTS/Info.plist"
 /usr/bin/ditto "$ROOT/macos/Payload" "$RESOURCES/Payload"
 /bin/cp "$ROOT/nfq/utunws" "$RESOURCES/Payload/bin/utunws"
-/bin/chmod 755 "$MACOS/ZapretMac" "$RESOURCES/Payload/bin/utunws" "$RESOURCES/Payload/install.sh" "$RESOURCES/Payload/run.sh" "$RESOURCES/Payload/restart.sh" "$RESOURCES/Payload/stop.sh" "$RESOURCES/Payload/watchdog.sh"
+/bin/chmod 755 "$MACOS/ZapretMac" "$RESOURCES/Payload/bin/utunws" "$RESOURCES/Payload/install.sh" "$RESOURCES/Payload/run.sh" "$RESOURCES/Payload/restart.sh" "$RESOURCES/Payload/stop.sh" "$RESOURCES/Payload/test-strategies.sh" "$RESOURCES/Payload/watchdog.sh"
 /usr/bin/codesign --force --deep --sign - "$APP"
 /bin/rm -f "$DIST/ZapretMac-macOS-universal.zip"
 /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP" "$DIST/ZapretMac-macOS-universal.zip"
