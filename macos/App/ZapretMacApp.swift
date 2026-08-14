@@ -70,7 +70,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var availableRelease: GitHubRelease?
     private var authorization: AuthorizationRef?
 
-    private let releaseURL = URL(string: "https://api.github.com/repos/Flowseal/zapret-mac-discord-youtube/releases?per_page=1")!
+    private let releaseURL = URL(string: "https://api.github.com/repos/Flowseal/zapret-mac-discord-youtube/releases")!
     private let releaseAssetName = "ZapretMac-macOS-universal.zip"
 
     private var dataRoot: URL {
@@ -338,7 +338,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func checkForUpdate() {
         if checkingForUpdate || updating { return }
         checkingForUpdate = true
-        var request = URLRequest(url: releaseURL, timeoutInterval: 12)
+        let url = URL(string: releaseURL.absoluteString + "?t=\(Int(Date().timeIntervalSince1970 * 1000))&per_page=1")!
+        var request = URLRequest(url: url, timeoutInterval: 12)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("zapret-mac", forHTTPHeaderField: "User-Agent")
         URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
@@ -382,29 +383,30 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         updating = true
         refreshMenu()
-        var request = URLRequest(url: asset.downloadURL, timeoutInterval: 120)
-        request.setValue("ZapretMac/\(currentVersion)", forHTTPHeaderField: "User-Agent")
-        URLSession.shared.downloadTask(with: request) { [weak self] source, response, error in
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
             guard let self else { return }
+            let source = self.fileManager.temporaryDirectory.appendingPathComponent("ZapretMac-\(UUID().uuidString).zip")
             do {
-                guard error == nil,
-                      let response = response as? HTTPURLResponse,
-                      response.statusCode == 200,
-                      let source else {
-                    throw error ?? NSError(domain: "ZapretMac.Update", code: 1, userInfo: [NSLocalizedDescriptionKey: "Не удалось скачать обновление"])
+                let arguments = ["-fL", "--connect-timeout", "5", "-A", "zapret-mac", "-o", source.path, asset.downloadURL.absoluteString]
+                do {
+                    try self.runProcess("/usr/bin/curl", arguments: ["--resolve", "release-assets.githubusercontent.com:443:185.199.109.133", "--max-time", "30"] + arguments)
+                } catch {
+                    try? self.fileManager.removeItem(at: source)
+                    try self.runProcess("/usr/bin/curl", arguments: ["--max-time", "120"] + arguments)
                 }
                 try self.prepareAndLaunchUpdate(source: source, release: release, asset: asset, target: target)
                 DispatchQueue.main.async {
                     NSApp.terminate(nil)
                 }
             } catch {
+                try? self.fileManager.removeItem(at: source)
                 DispatchQueue.main.async {
                     self.updating = false
                     self.refreshMenu()
                     self.showError(error.localizedDescription)
                 }
             }
-        }.resume()
+        }
     }
 
     private func prepareAndLaunchUpdate(source: URL, release: GitHubRelease, asset: GitHubReleaseAsset, target: URL) throws {
