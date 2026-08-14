@@ -51,6 +51,15 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          unzip -p artifact/ZapretMac-macOS-universal.zip ZapretMac.app/Contents/Info.plist > /tmp/ZapretMac-Info.plist
+          APP_VERSION=$(python3 -c 'import plistlib; print(plistlib.load(open("/tmp/ZapretMac-Info.plist", "rb"))["CFBundleShortVersionString"])')
+          TAG_VERSION=$(printf '%s' '${{ inputs.tag }}' | sed -E 's/^[vV]//; s/-.*$//')
+
+          if [ "$APP_VERSION" != "$TAG_VERSION" ]; then
+            echo "App version $APP_VERSION does not match tag ${{ inputs.tag }}"
+            exit 1
+          fi
+
           gh release create "${{ inputs.tag }}" \
             artifact/ZapretMac-macOS-universal.zip \
             --repo "${{ github.repository }}" \
