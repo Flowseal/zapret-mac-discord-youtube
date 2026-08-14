@@ -376,9 +376,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
               let asset = release.assets.first(where: { $0.name == releaseAssetName }),
               !updating else { return }
         let target = Bundle.main.bundleURL.standardizedFileURL
-        guard target.lastPathComponent == "ZapretMac.app",
+        guard target.pathExtension == "app",
               !target.path.contains("/AppTranslocation/") else {
-            showError("Переместите ZapretMac.app в папку Applications и запустите снова")
+            showError("Переместите ZapretMac.app из защищённой папки (например, в папку Applications) и запустите снова")
             return
         }
         updating = true

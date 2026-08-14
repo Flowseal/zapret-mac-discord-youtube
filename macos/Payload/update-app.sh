@@ -11,7 +11,7 @@ USER_UID=$7
 USER_GID=$8
 
 case "$NEW_APP:$TARGET_APP:$WORK_ROOT:$DATA_ROOT" in
-    "$WORK_ROOT"/extracted/ZapretMac.app:*/ZapretMac.app:*/ZapretMac-Update-*:/Users/*/'Library/Application Support/ZapretMac') ;;
+    "$WORK_ROOT"/extracted/ZapretMac.app:*.app:*/ZapretMac-Update-*:/Users/*/'Library/Application Support/ZapretMac') ;;
     *) exit 1 ;;
 esac
 case "$APP_PID:$USER_UID:$USER_GID" in
