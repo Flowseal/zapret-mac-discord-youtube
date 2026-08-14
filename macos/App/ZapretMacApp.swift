@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 import Foundation
 import Security
 
@@ -14,6 +15,28 @@ private func executeWithPrivileges(
 struct Strategy {
     let id: String
     let name: String
+}
+
+struct GitHubRelease: Decodable {
+    let tagName: String
+    let assets: [GitHubReleaseAsset]
+
+    enum CodingKeys: String, CodingKey {
+        case tagName = "tag_name"
+        case assets
+    }
+}
+
+struct GitHubReleaseAsset: Decodable {
+    let name: String
+    let downloadURL: URL
+    let digest: String?
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case downloadURL = "browser_download_url"
+        case digest
+    }
 }
 
 @main
@@ -33,14 +56,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private var statusItem: NSStatusItem!
     private var startStopItem = NSMenuItem()
     private var testItem = NSMenuItem()
+    private var versionItem = NSMenuItem()
     private var strategyItems: [NSMenuItem] = []
     private var ipsetItems: [NSMenuItem] = []
     private var strategies: [Strategy] = []
     private var timer: Timer?
+    private var updateTimer: Timer?
     private var busy = false
     private var testing = false
     private var cancellingTest = false
+    private var checkingForUpdate = false
+    private var updating = false
+    private var availableRelease: GitHubRelease?
     private var authorization: AuthorizationRef?
+
+    private let releaseURL = URL(string: "https://api.github.com/repos/Flowseal/zapret-mac-discord-youtube/releases?per_page=1")!
+    private let releaseAssetName = "ZapretMac-macOS-universal.zip"
 
     private var dataRoot: URL {
         fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -62,8 +93,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         buildMenu()
         refreshMenu()
+        showPendingUpdateError()
         timer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             self?.refreshMenu()
+        }
+        checkForUpdate()
+        updateTimer = Timer.scheduledTimer(withTimeInterval: 3600, repeats: true) { [weak self] _ in
+            self?.checkForUpdate()
         }
     }
 
@@ -146,6 +182,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         openLists.target = self
         menu.addItem(openLists)
         menu.addItem(.separator())
+        versionItem = NSMenuItem(title: versionTitle, action: #selector(installUpdate), keyEquivalent: "")
+        versionItem.target = self
+        menu.addItem(versionItem)
+        menu.addItem(.separator())
         let quit = NSMenuItem(title: "Выход", action: #selector(quitApp), keyEquivalent: "q")
         quit.target = self
         menu.addItem(quit)
@@ -179,6 +219,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             testItem.title = "Тест стратегий"
         }
         testItem.isEnabled = testing ? !cancellingTest : !busy
+        if updating {
+            versionItem.title = "Установка обновления.."
+        } else if let release = availableRelease {
+            versionItem.title = "Версия \(currentVersion) — обновить до \(displayVersion(release.tagName))"
+        } else {
+            versionItem.title = versionTitle
+        }
+        versionItem.isEnabled = availableRelease != nil && !busy && !testing && !updating
     }
 
     private func statusIcon(running: Bool) -> NSImage {
@@ -269,6 +317,169 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func openLists() {
         NSWorkspace.shared.open(dataRoot.appendingPathComponent("lists", isDirectory: true))
+    }
+
+    private var currentVersion: String {
+        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
+    }
+
+    private var versionTitle: String {
+        "Версия \(currentVersion)"
+    }
+
+    private func displayVersion(_ version: String) -> String {
+        version.first == "v" || version.first == "V" ? String(version.dropFirst()) : version
+    }
+
+    private func bundledVersion(_ releaseVersion: String) -> String {
+        displayVersion(releaseVersion).split(separator: "-", maxSplits: 1).first.map(String.init) ?? displayVersion(releaseVersion)
+    }
+
+    private func checkForUpdate() {
+        if checkingForUpdate || updating { return }
+        checkingForUpdate = true
+        var request = URLRequest(url: releaseURL, timeoutInterval: 12)
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.setValue("zapret-mac", forHTTPHeaderField: "User-Agent")
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, _ in
+            guard let self else { return }
+            var release: GitHubRelease?
+            var completed = false
+            if let response = response as? HTTPURLResponse,
+               response.statusCode == 200,
+               let data,
+               let decoded = try? JSONDecoder().decode([GitHubRelease].self, from: data),
+               let latest = decoded.first {
+                completed = true
+                if latest.assets.contains(where: { $0.name == self.releaseAssetName }),
+                   self.isNewer(latest.tagName, than: self.currentVersion) {
+                    release = latest
+                }
+            }
+            DispatchQueue.main.async {
+                self.checkingForUpdate = false
+                if completed {
+                    self.availableRelease = release
+                }
+                self.refreshMenu()
+            }
+        }.resume()
+    }
+
+    private func isNewer(_ candidate: String, than installed: String) -> Bool {
+        bundledVersion(candidate).compare(displayVersion(installed), options: [.numeric, .caseInsensitive]) == .orderedDescending
+    }
+
+    @objc private func installUpdate() {
+        guard let release = availableRelease,
+              let asset = release.assets.first(where: { $0.name == releaseAssetName }),
+              !updating else { return }
+        let target = Bundle.main.bundleURL.standardizedFileURL
+        guard target.lastPathComponent == "ZapretMac.app",
+              !target.path.contains("/AppTranslocation/") else {
+            showError("Переместите ZapretMac.app в папку Applications и запустите снова")
+            return
+        }
+        updating = true
+        refreshMenu()
+        var request = URLRequest(url: asset.downloadURL, timeoutInterval: 120)
+        request.setValue("ZapretMac/\(currentVersion)", forHTTPHeaderField: "User-Agent")
+        URLSession.shared.downloadTask(with: request) { [weak self] source, response, error in
+            guard let self else { return }
+            do {
+                guard error == nil,
+                      let response = response as? HTTPURLResponse,
+                      response.statusCode == 200,
+                      let source else {
+                    throw error ?? NSError(domain: "ZapretMac.Update", code: 1, userInfo: [NSLocalizedDescriptionKey: "Не удалось скачать обновление"])
+                }
+                try self.prepareAndLaunchUpdate(source: source, release: release, asset: asset, target: target)
+                DispatchQueue.main.async {
+                    NSApp.terminate(nil)
+                }
+            } catch {
+                DispatchQueue.main.async {
+                    self.updating = false
+                    self.refreshMenu()
+                    self.showError(error.localizedDescription)
+                }
+            }
+        }.resume()
+    }
+
+    private func prepareAndLaunchUpdate(source: URL, release: GitHubRelease, asset: GitHubReleaseAsset, target: URL) throws {
+        let workRoot = fileManager.temporaryDirectory.appendingPathComponent("ZapretMac-Update-\(UUID().uuidString)", isDirectory: true)
+        let archive = workRoot.appendingPathComponent(releaseAssetName)
+        let extracted = workRoot.appendingPathComponent("extracted", isDirectory: true)
+        do {
+            try fileManager.createDirectory(at: extracted, withIntermediateDirectories: true)
+            try fileManager.moveItem(at: source, to: archive)
+            try verifyDigest(of: archive, expected: asset.digest)
+            try runProcess("/usr/bin/ditto", arguments: ["-x", "-k", archive.path, extracted.path])
+            let app = extracted.appendingPathComponent("ZapretMac.app", isDirectory: true)
+            try verifyUpdate(app, version: release.tagName)
+            let updater = payloadURL.appendingPathComponent("update-app.sh")
+            let updaterCopy = workRoot.appendingPathComponent("update-app.sh")
+            try fileManager.copyItem(at: updater, to: updaterCopy)
+            let log = dataRoot.appendingPathComponent("update.log")
+            let command = ([
+                "/usr/bin/nohup", "/bin/sh", updaterCopy.path, app.path, target.path,
+                String(ProcessInfo.processInfo.processIdentifier), workRoot.path,
+                isRunning() ? "1" : "0", dataRoot.path, String(getuid()), String(getgid())
+            ].map(shellQuote).joined(separator: " ")) + " >\(shellQuote(log.path)) 2>&1 </dev/null &"
+            let result = try executePrivileged(command: command)
+            guard result.status == 0 else {
+                throw NSError(domain: "ZapretMac.Update", code: 2, userInfo: [NSLocalizedDescriptionKey: result.output.isEmpty ? "Не удалось запустить установку обновления" : result.output])
+            }
+        } catch {
+            try? fileManager.removeItem(at: workRoot)
+            throw error
+        }
+    }
+
+    private func verifyDigest(of archive: URL, expected: String?) throws {
+        guard let expected, expected.hasPrefix("sha256:") else { return }
+        let data = try Data(contentsOf: archive, options: .mappedIfSafe)
+        let actual = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
+        guard actual.caseInsensitiveCompare(String(expected.dropFirst(7))) == .orderedSame else {
+            throw NSError(domain: "ZapretMac.Update", code: 3, userInfo: [NSLocalizedDescriptionKey: "Контрольная сумма обновления не совпала"])
+        }
+    }
+
+    private func verifyUpdate(_ app: URL, version: String) throws {
+        guard fileManager.fileExists(atPath: app.path),
+              let bundle = Bundle(url: app),
+              bundle.bundleIdentifier == Bundle.main.bundleIdentifier,
+              let bundledVersion = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
+              displayVersion(bundledVersion) == self.bundledVersion(version) else {
+            throw NSError(domain: "ZapretMac.Update", code: 4, userInfo: [NSLocalizedDescriptionKey: "Архив релиза содержит неподходящую версию приложения"])
+        }
+        try runProcess("/usr/bin/codesign", arguments: ["--verify", "--deep", "--strict", app.path])
+        let executable = app.appendingPathComponent("Contents/MacOS/ZapretMac")
+        try runProcess("/usr/bin/lipo", arguments: [executable.path, "-verify_arch", "x86_64", "arm64"])
+    }
+
+    private func runProcess(_ path: String, arguments: [String]) throws {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: path)
+        process.arguments = arguments
+        process.standardOutput = FileHandle.nullDevice
+        let errorPipe = Pipe()
+        process.standardError = errorPipe
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            let data = errorPipe.fileHandleForReading.readDataToEndOfFile()
+            let message = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+            throw NSError(domain: "ZapretMac.Update", code: Int(process.terminationStatus), userInfo: [NSLocalizedDescriptionKey: message?.isEmpty == false ? message! : "Проверка обновления не пройдена"])
+        }
+    }
+
+    private func showPendingUpdateError() {
+        let file = dataRoot.appendingPathComponent("update-error")
+        guard let message = try? String(contentsOf: file, encoding: .utf8), !message.isEmpty else { return }
+        try? fileManager.removeItem(at: file)
+        showError(message)
     }
 
     @objc private func testStrategies() {

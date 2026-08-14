@@ -19,7 +19,7 @@ esac
 /usr/bin/rsync -a --delete "$SOURCE/" "$DEST/"
 /usr/bin/touch "$DEST/ipset-any.txt"
 /usr/sbin/chown -R root:wheel "$DEST"
-/bin/chmod 755 "$DEST/install.sh" "$DEST/run.sh" "$DEST/restart.sh" "$DEST/stop.sh" "$DEST/test-strategies.sh" "$DEST/watchdog.sh" "$DEST/bin/utunws"
+/bin/chmod 755 "$DEST/install.sh" "$DEST/run.sh" "$DEST/restart.sh" "$DEST/stop.sh" "$DEST/test-strategies.sh" "$DEST/update-app.sh" "$DEST/watchdog.sh" "$DEST/bin/utunws"
 /usr/bin/sed "s|@DATA_ROOT@|$DATA_ROOT|g" "$DEST/io.github.flowseal.zapretmac.plist.in" > "$PLIST"
 /usr/sbin/chown root:wheel "$PLIST"
 /bin/chmod 644 "$PLIST"
