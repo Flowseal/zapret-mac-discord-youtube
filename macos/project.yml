@@ -1,0 +1,71 @@
+name: ZapretMac
+
+options:
+  bundleIdPrefix: io.github.flowseal.zapretmac
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  groupSortPosition: top
+
+settings:
+  base:
+    SWIFT_VERSION: "5.0"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    ALWAYS_SEARCH_USER_PATHS: NO
+    CLANG_ENABLE_OBJC_ARC: YES
+
+targets:
+  ZapretMac:
+    type: application
+    platform: macOS
+    sources:
+      - path: App
+      - path: AppIcon.icns
+        buildPhase: resources
+      - path: Payload
+        type: folder
+        buildPhase: resources
+    settings:
+      base:
+        PRODUCT_NAME: ZapretMac
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.flowseal.zapretmac.app
+        INFOPLIST_FILE: Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_STYLE: Manual
+        DEVELOPMENT_TEAM: ""
+        ENABLE_HARDENED_RUNTIME: NO
+        ENABLE_APP_SANDBOX: NO
+        SWIFT_EMIT_LOC_STRINGS: NO
+        COMBINE_HIDPI_IMAGES: YES
+    preBuildScripts:
+      - name: Build utunws helper
+        basedOnDependencyAnalysis: false
+        script: |
+          set -eu
+          cd "$SRCROOT/../nfq"
+          /usr/bin/make mac CC="$(/usr/bin/xcrun -f clang)" SDKROOT="$SDKROOT"
+          /bin/mkdir -p "$SRCROOT/Payload/bin"
+          /bin/cp utunws "$SRCROOT/Payload/bin/utunws"
+          /bin/chmod 755 "$SRCROOT/Payload/bin/utunws"
+    postCompileScripts:
+      - name: Make payload scripts executable
+        basedOnDependencyAnalysis: false
+        script: |
+          set -eu
+          PAYLOAD="$TARGET_BUILD_DIR/$UNLOCALIZED_RESOURCES_FOLDER_PATH/Payload"
+          /bin/chmod 755 "$PAYLOAD"/*.sh "$PAYLOAD/bin/utunws"
+
+schemes:
+  ZapretMac:
+    build:
+      targets:
+        ZapretMac: all
+    run:
+      config: Debug
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release

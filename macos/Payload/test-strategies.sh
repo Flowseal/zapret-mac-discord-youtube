@@ -33,12 +33,12 @@ restore() {
     printf '%s\n' "$ORIGINAL_IPSET" >"$DATA_ROOT/ipset-mode"
     if [ "$ORIGINAL_RUNNING" -eq 1 ]; then
         if [ "$INSTALLED" -eq 1 ]; then
-            "$BASE/restart.sh" >/dev/null 2>&1 || true
+            /bin/sh "$BASE/restart.sh" >/dev/null 2>&1 || true
         else
-            "$SOURCE/install.sh" "$SOURCE" "$DATA_ROOT" >/dev/null 2>&1 || true
+            /bin/sh "$SOURCE/install.sh" "$SOURCE" "$DATA_ROOT" >/dev/null 2>&1 || true
         fi
     else
-        "$SOURCE/stop.sh" >/dev/null 2>&1 || true
+        /bin/sh "$SOURCE/stop.sh" >/dev/null 2>&1 || true
     fi
     /usr/sbin/chown "$TEST_UID:$TEST_GID" "$REPORT" 2>/dev/null || true
     /bin/chmod 644 "$REPORT" 2>/dev/null || true
@@ -174,10 +174,10 @@ start_strategy() {
     printf '%s\n' "$STRATEGY" >"$DATA_ROOT/selected-strategy"
     printf 'any\n' >"$DATA_ROOT/ipset-mode"
     if [ "$INSTALLED" -eq 0 ]; then
-        if ! "$SOURCE/install.sh" "$SOURCE" "$DATA_ROOT" >"$TMP/install.log" 2>&1; then return 1; fi
+        if ! /bin/sh "$SOURCE/install.sh" "$SOURCE" "$DATA_ROOT" >"$TMP/install.log" 2>&1; then return 1; fi
         INSTALLED=1
     else
-        if ! "$BASE/restart.sh" >"$TMP/restart.log" 2>&1; then return 1; fi
+        if ! /bin/sh "$BASE/restart.sh" >"$TMP/restart.log" 2>&1; then return 1; fi
     fi
     wait_for_engine "$OLD_PID"
 }
@@ -194,7 +194,7 @@ www.gstatic.com'
 
 : >"$REPORT"
 set_progress 'Подготовка'
-"$SOURCE/stop.sh" >/dev/null 2>&1 || true
+/bin/sh "$SOURCE/stop.sh" >/dev/null 2>&1 || true
 INDEX=0
 while IFS= read -r HOST; do
     INDEX=$((INDEX + 1))

@@ -62,7 +62,7 @@ fi
 /bin/rm -f "$ERROR_FILE"
 if [ "$WAS_RUNNING" = 1 ]; then
     if ! /bin/sh "$TARGET_APP/Contents/Resources/Payload/install.sh" "$TARGET_APP/Contents/Resources/Payload" "$DATA_ROOT"; then
-        echo 'Приложение обновлено, но не удалось перезапустить Zapret. Запустите его из меню ещё раз.' > "$ERROR_FILE"
+        echo 'Приложение обновлено, но не удалось перезапустить сервис. Запустите его из меню ещё раз.' > "$ERROR_FILE"
         /usr/sbin/chown "$USER_UID:$USER_GID" "$ERROR_FILE"
     fi
 fi
