@@ -540,7 +540,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSApp.terminate(nil)
     }
 
-    private func runPrivileged(script: String, arguments: [String], completion: ((String?) -> Void)? = nil) {
+    private func runPrivileged(script: String, arguments: [String], useControl: Bool = true, completion: ((String?) -> Void)? = nil) {
+#if ZAPRET_CONTROL
+        if useControl, let action = ControlAction.forScript(script) {
+            runControlled(action: action, script: script, arguments: arguments, completion: completion)
+            return
+        }
+#endif
         if busy { return }
         busy = true
         refreshMenu()
@@ -583,6 +589,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             }
         }
     }
+
+#if ZAPRET_CONTROL
+    private func runControlled(action: ControlAction, script: String, arguments: [String], completion: ((String?) -> Void)?) {
+        if busy { return }
+        busy = true
+        refreshMenu()
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            let result = callZapretControl(action)
+            DispatchQueue.main.async {
+                self.busy = false
+                // Disabled, absent or incompatible helper: preserve upstream authorization.
+                if result.status == 69 {
+                    self.runPrivileged(script: script, arguments: arguments, useControl: false, completion: completion)
+                    return
+                }
+                var failure: String?
+                if result.status != 0 {
+                    failure = result.output.isEmpty ? "Операция не выполнена" : result.output
+                    let diagnostics = self.serviceDiagnostics()
+                    if !diagnostics.isEmpty {
+                        failure = (failure ?? "Операция не выполнена") + "\n\n" + diagnostics
+                    }
+                }
+                self.refreshMenu()
+                if let failure { self.showError(failure) }
+                completion?(failure)
+            }
+        }
+    }
+#endif
 
     private func executePrivileged(command: String) throws -> (status: Int32, output: String) {
         var auth = authorization

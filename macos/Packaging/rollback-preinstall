@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+PATH=/usr/bin:/bin:/usr/sbin:/sbin
+export PATH
+[ "${3:-/}" = / ] || exit 1
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+if OWNER_UID=$("$SCRIPT_DIR/setup-check" 2>/dev/null); then
+    OWNER_NAME=$(/usr/bin/id -nu "$OWNER_UID")
+    /usr/bin/killall -u "$OWNER_NAME" ZapretMac >/dev/null 2>&1 || true
+fi

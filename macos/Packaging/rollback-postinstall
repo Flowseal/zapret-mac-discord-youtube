@@ -1,0 +1,18 @@
+#!/bin/sh
+set -eu
+PATH=/usr/bin:/bin:/usr/sbin:/sbin
+export PATH
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+LABEL='io.github.flowseal.zapretmac.control'
+/bin/launchctl bootout "system/$LABEL" >/dev/null 2>&1 || true
+/bin/rm -f "/Library/LaunchDaemons/$LABEL.plist" "/Library/PrivilegedHelperTools/$LABEL"
+CONTROL='/Library/Application Support/ZapretMacControl'
+if [ -d "$CONTROL" ] && [ ! -L "$CONTROL" ]; then
+    /bin/rm -f "$CONTROL/control.sh" "$CONTROL/probe" "$CONTROL/requirements.plist" "$CONTROL/LICENSE" "$CONTROL/installation-check.txt"
+    /bin/rmdir "$CONTROL" 2>/dev/null || true
+fi
+/usr/sbin/pkgutil --forget "$LABEL.package" >/dev/null 2>&1 || true
+if OWNER_UID=$("$SCRIPT_DIR/setup-check" 2>/dev/null); then
+    OWNER_NAME=$(/usr/bin/id -nu "$OWNER_UID")
+    /bin/launchctl asuser "$OWNER_UID" /usr/bin/sudo -u "$OWNER_NAME" /usr/bin/open '/Applications/ZapretMac.app' || true
+fi
