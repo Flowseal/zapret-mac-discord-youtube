@@ -4,3 +4,5 @@
 /nfq/utunws
 /nfq/utunwsa
 /nfq/utunwsx
+__pycache__/
+*.py[cod]
