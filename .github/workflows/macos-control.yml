@@ -1,0 +1,46 @@
+name: Build privileged control preview
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/privileged-control]
+  pull_request:
+    paths:
+      - macos/**
+      - nfq/**
+      - .github/workflows/macos-control.yml
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: macos-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Check UI preservation and controller behavior
+        run: |
+          python3 macos/Tests/test_source.py
+          python3 macos/Tests/test_controller.py
+          mkdir -p build
+          xcrun swiftc -swift-version 5 -parse-as-library macos/Control/Protocol.swift macos/Tests/PolicyTests.swift -o build/control-policy-tests
+          build/control-policy-tests
+      - name: Build universal preview packages
+        run: python3 macos/build-control.py
+      - name: Check publication privacy
+        run: python3 macos/Tests/check_privacy.py
+      - name: Upload preview artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: ZapretMac-control-preview
+          path: |
+            dist/ZapretMac-Control.pkg
+            dist/Restore-ZapretMac.pkg
+            dist/ZapretMac-Control-source.tar.gz
+            dist/SHA256SUMS
+            dist/LICENSE
+          if-no-files-found: error
+          retention-days: 14
