@@ -1,0 +1,49 @@
+#!/bin/sh
+set -eu
+PATH=/usr/bin:/bin:/usr/sbin:/sbin
+export PATH
+SCRIPT_DIR=$(CDPATH= cd -- "$(dirname "$0")" && pwd)
+OWNER_UID=$("$SCRIPT_DIR/setup-check")
+OWNER_NAME=$(/usr/bin/id -nu "$OWNER_UID")
+LABEL='io.github.flowseal.zapretmac.control'
+CONTROL='/Library/Application Support/ZapretMacControl'
+/usr/sbin/chown -R root:wheel "$CONTROL"
+/bin/chmod 755 "$CONTROL" "$CONTROL/control.sh" "$CONTROL/probe"
+/bin/chmod 644 "$CONTROL/requirements.plist" "$CONTROL/LICENSE"
+/usr/sbin/chown root:wheel "/Library/PrivilegedHelperTools/$LABEL" "/Library/LaunchDaemons/$LABEL.plist"
+/bin/chmod 755 "/Library/PrivilegedHelperTools/$LABEL"
+/bin/chmod 644 "/Library/LaunchDaemons/$LABEL.plist"
+/bin/launchctl bootout "system/$LABEL" >/dev/null 2>&1 || true
+/bin/launchctl enable "system/$LABEL"
+/bin/launchctl bootstrap system "/Library/LaunchDaemons/$LABEL.plist"
+/bin/launchctl asuser "$OWNER_UID" /usr/bin/sudo -u "$OWNER_NAME" "$CONTROL/probe" > "$CONTROL/installation-check.txt" 2>&1
+# A binary with a different signature must not be allowed to call even ping.
+if /bin/launchctl asuser "$OWNER_UID" /usr/bin/sudo -u "$OWNER_NAME" "$SCRIPT_DIR/untrusted-probe" >/dev/null 2>&1; then
+    echo 'XPC peer validation failed' >&2
+    exit 1
+else
+    CHECK_STATUS=$?
+    [ "$CHECK_STATUS" = 69 ] || exit 1
+fi
+echo 'Peer validation: OK' >> "$CONTROL/installation-check.txt"
+
+# Remove a previous local prototype by structure; no account-specific label is embedded.
+for OLD_PLIST in /Library/LaunchDaemons/local.*.zapretmac.control.plist; do
+    [ -f "$OLD_PLIST" ] && [ ! -L "$OLD_PLIST" ] || continue
+    [ "$(/usr/bin/stat -f %u "$OLD_PLIST")" = 0 ] || continue
+    OLD_LABEL=$(/usr/libexec/PlistBuddy -c 'Print :Label' "$OLD_PLIST")
+    case "$OLD_LABEL" in local.*.zapretmac.control) ;; *) continue ;; esac
+    [ "$OLD_PLIST" = "/Library/LaunchDaemons/$OLD_LABEL.plist" ] || continue
+    OLD_HELPER=$(/usr/libexec/PlistBuddy -c 'Print :ProgramArguments:0' "$OLD_PLIST")
+    [ "$OLD_HELPER" = "/Library/PrivilegedHelperTools/$OLD_LABEL" ] || continue
+    /bin/launchctl bootout "system/$OLD_LABEL" >/dev/null 2>&1 || true
+    /bin/rm -f "$OLD_PLIST" "$OLD_HELPER"
+    /usr/sbin/pkgutil --forget "$OLD_LABEL.package" >/dev/null 2>&1 || true
+done
+LEGACY='/Library/Application Support/ZapretMacPasswordless'
+if [ -d "$LEGACY" ] && [ ! -L "$LEGACY" ] && [ "$(/usr/bin/stat -f %u "$LEGACY")" = 0 ]; then
+    /bin/rm -f "$LEGACY/control.sh" "$LEGACY/probe" "$LEGACY/installation-check.txt"
+    /bin/rmdir "$LEGACY" 2>/dev/null || true
+fi
+/bin/launchctl asuser "$OWNER_UID" /usr/bin/sudo -u "$OWNER_NAME" /usr/bin/open '/Applications/ZapretMac.app' || true
+exit 0
