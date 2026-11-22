@@ -52,6 +52,13 @@ jobs:
           path: dist/Nimbus-Windows-x64.exe
           if-no-files-found: error
 
+      - name: Collect engine logs
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force logs | Out-Null
+          Copy-Item C:/ProgramData/Nimbus/*.log logs -ErrorAction SilentlyContinue
+
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -59,5 +66,5 @@ jobs:
           path: |
             self-test.txt
             screens/
-            C:/ProgramData/Nimbus/*.log
+            logs/
           if-no-files-found: ignore
