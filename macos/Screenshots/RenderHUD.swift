@@ -3,6 +3,11 @@
 import AppKit
 import SwiftUI
 
+final class KeyWindow: NSWindow {
+    override var canBecomeKey: Bool { true }
+    override var canBecomeMain: Bool { true }
+}
+
 struct Strategy {
     let id: String
     let name: String
@@ -67,22 +72,23 @@ struct RenderHUD {
                                                 : NSColor(srgbRed: 0.79, green: 0.84, blue: 0.91, alpha: 1)).cgColor
         hosting.frame = backdrop.bounds
         backdrop.addSubview(hosting)
-        let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: size.width, height: size.height),
+        let window = KeyWindow(contentRect: NSRect(x: 200, y: 200, width: size.width, height: size.height),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         window.contentView = backdrop
-        window.orderFrontRegardless()
+        // an active key window, so switches use the accent tint like the real popover
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
         RunLoop.current.run(until: Date().addingTimeInterval(1.5))
 
-        // 1) window server capture (includes real materials) if the runner allows it
-        let id = CGWindowID(window.windowNumber)
-        if let cg = CGWindowListCreateImage(.null, .optionIncludingWindow, id, [.boundsIgnoreFraming, .bestResolution]) {
-            save(NSBitmapImageRep(cgImage: cg), to: path + "-window.png")
-        }
-        // 2) view snapshot
-        if let rep = backdrop.bitmapImageRepForCachingDisplay(in: backdrop.bounds) {
+        // 2x snapshot of the view hierarchy
+        let scale = 2
+        if let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width) * scale, pixelsHigh: Int(size.height) * scale,
+                                      bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                      colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) {
+            rep.size = size
             backdrop.cacheDisplay(in: backdrop.bounds, to: rep)
-            save(rep, to: path + "-cache.png")
+            save(rep, to: path + ".png")
         }
         window.orderOut(nil)
     }
