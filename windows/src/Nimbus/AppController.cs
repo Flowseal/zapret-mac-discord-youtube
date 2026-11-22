@@ -134,7 +134,7 @@ internal sealed class AppController
         tray.Update(running);
         var selected = State.Read(Paths.SelectedStrategy);
         model.Running = running;
-        model.Busy = busy;
+        model.Busy = busy || testing; // the Mac app holds its privileged "busy" lock for the whole test
         model.Testing = testing;
         model.Updating = updating;
         model.SelectedStrategyId = selected;
@@ -224,6 +224,7 @@ internal sealed class AppController
 
     private void SelectStrategy(string id)
     {
+        if (testing) return;
         try
         {
             State.Write(Paths.SelectedStrategy, id);
@@ -238,6 +239,7 @@ internal sealed class AppController
 
     private void SelectIpset(string mode)
     {
+        if (testing) return;
         try
         {
             State.Write(Paths.IpsetMode, mode);
@@ -271,7 +273,7 @@ internal sealed class AppController
 
     private void RunEngineOperation(Action operation, Action<string?>? completion = null)
     {
-        if (busy) return;
+        if (busy || testing) return;
         busy = true;
         Refresh();
         Task.Run(operation).ContinueWith(t =>

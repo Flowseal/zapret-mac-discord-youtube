@@ -86,13 +86,16 @@ internal static class Screens
         window.UpdateLayout();
         var root = (FrameworkElement)window.Content;
         const double scale = 2;
+        // the root grid has an 8 px margin (room for the shadow); include it on every side
+        var width = root.ActualWidth + root.Margin.Left + root.Margin.Right;
+        var height = root.ActualHeight + root.Margin.Top + root.Margin.Bottom;
         var bitmap = new RenderTargetBitmap(
-            (int)Math.Ceiling(root.ActualWidth * scale), (int)Math.Ceiling(root.ActualHeight * scale), 96 * scale, 96 * scale, PixelFormats.Pbgra32);
+            (int)Math.Ceiling(width * scale), (int)Math.Ceiling(height * scale), 96 * scale, 96 * scale, PixelFormats.Pbgra32);
         var backdrop = new DrawingVisual();
         using (var dc = backdrop.RenderOpen())
         {
             var light = (bool)Application.Current.Resources["IsLightTheme"];
-            dc.DrawRectangle(new SolidColorBrush(light ? Color.FromRgb(0xC9, 0xD6, 0xE8) : Color.FromRgb(0x1B, 0x23, 0x33)), null, new Rect(0, 0, root.ActualWidth, root.ActualHeight));
+            dc.DrawRectangle(new SolidColorBrush(light ? Color.FromRgb(0xC9, 0xD6, 0xE8) : Color.FromRgb(0x1B, 0x23, 0x33)), null, new Rect(0, 0, width, height));
         }
         bitmap.Render(backdrop);
         bitmap.Render(root);
