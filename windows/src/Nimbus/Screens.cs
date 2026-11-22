@@ -30,7 +30,7 @@ internal static class Screens
                 m.LoginEnabled = true;
                 m.IpsetMode = IpsetModes.Loaded;
                 m.Discord = ServiceHealth.Ok;
-                m.YouTube = ServiceHealth.Bad;
+                m.YouTube = ServiceHealth.Ok;
             });
             Shoot(dir, $"{theme}-3-main-testing", strategies, m =>
             {
