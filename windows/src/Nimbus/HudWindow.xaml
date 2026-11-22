@@ -1,0 +1,584 @@
+<Window x:Class="Nimbus.HudWindow" x:ClassModifier="internal"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:sys="clr-namespace:System;assembly=mscorlib"
+        xmlns:local="clr-namespace:Nimbus"
+        Title="Nimbus"
+        Width="316"
+        SizeToContent="Height"
+        MaxHeight="600"
+        WindowStyle="None"
+        AllowsTransparency="True"
+        Background="Transparent"
+        ResizeMode="NoResize"
+        ShowInTaskbar="False"
+        Topmost="True"
+        UseLayoutRounding="True"
+        SnapsToDevicePixels="True"
+        FontFamily="Segoe UI Variable Text, Segoe UI"
+        FontSize="13"
+        Foreground="{DynamicResource FgBrush}"
+        TextOptions.TextFormattingMode="Display">
+    <Window.Resources>
+        <BooleanToVisibilityConverter x:Key="Vis" />
+        <local:InverseVisibilityConverter x:Key="NotVis" />
+        <local:HealthBrushConverter x:Key="HealthBrush" />
+
+        <FontFamily x:Key="IconFont">Segoe Fluent Icons, Segoe MDL2 Assets</FontFamily>
+
+        <Style x:Key="Glyph" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="{StaticResource IconFont}" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Width" Value="18" />
+            <Setter Property="TextAlignment" Value="Center" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Foreground" Value="{DynamicResource SecondaryBrush}" />
+        </Style>
+        <Style x:Key="Chevron" TargetType="TextBlock">
+            <Setter Property="FontFamily" Value="{StaticResource IconFont}" />
+            <Setter Property="FontSize" Value="9" />
+            <Setter Property="Text" Value="&#xE76C;" />
+            <Setter Property="Margin" Value="8,0,0,0" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Foreground" Value="{DynamicResource TertiaryBrush}" />
+        </Style>
+        <Style x:Key="Caption" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11.5" />
+            <Setter Property="Foreground" Value="{DynamicResource SecondaryBrush}" />
+        </Style>
+        <Style x:Key="Hairline" TargetType="Border">
+            <Setter Property="Height" Value="1" />
+            <Setter Property="Margin" Value="28,0,0,0" />
+            <Setter Property="Background" Value="{DynamicResource HairlineBrush}" />
+        </Style>
+        <Style x:Key="Group" TargetType="Border">
+            <Setter Property="CornerRadius" Value="12" />
+            <Setter Property="Padding" Value="10,0" />
+            <Setter Property="Margin" Value="0,0,0,10" />
+            <Setter Property="Background" Value="{DynamicResource GroupBrush}" />
+        </Style>
+
+        <!-- Plain, borderless button like SwiftUI's .buttonStyle(.plain) -->
+        <Style x:Key="Plain" TargetType="Button">
+            <Setter Property="Foreground" Value="{DynamicResource FgBrush}" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Root" Background="{TemplateBinding Background}" CornerRadius="6" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Root" Property="Opacity" Value="0.6" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Root" Property="Opacity" Value="0.45" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="Link" TargetType="Button" BasedOn="{StaticResource Plain}">
+            <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="HorizontalAlignment" Value="Left" />
+            <Setter Property="HorizontalContentAlignment" Value="Left" />
+        </Style>
+        <!-- Full-width list row with a hover tint -->
+        <Style x:Key="Row" TargetType="Button" BasedOn="{StaticResource Plain}">
+            <Setter Property="Padding" Value="0,9" />
+            <Setter Property="Margin" Value="-6,0" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Root" Background="Transparent" CornerRadius="7" Padding="6,0">
+                            <ContentPresenter Margin="{TemplateBinding Padding}" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource HoverBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsPressed" Value="True">
+                                <Setter TargetName="Root" Property="Opacity" Value="0.7" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Root" Property="Opacity" Value="0.5" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- macOS-style switch; state comes from Tag so a click only asks the controller, like the Mac Binding(get:set:) -->
+        <Style x:Key="Switch" TargetType="Button">
+            <Setter Property="Width" Value="40" />
+            <Setter Property="Height" Value="24" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Track" CornerRadius="12" Background="{DynamicResource SwitchOffBrush}">
+                            <Ellipse x:Name="Knob" Width="20" Height="20" Fill="White" HorizontalAlignment="Left" Margin="2,0">
+                                <Ellipse.Effect>
+                                    <DropShadowEffect BlurRadius="3" ShadowDepth="1" Opacity="0.25" Direction="270" />
+                                </Ellipse.Effect>
+                            </Ellipse>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="Tag">
+                                <Trigger.Value>
+                                    <sys:Boolean>True</sys:Boolean>
+                                </Trigger.Value>
+                                <Setter TargetName="Track" Property="Background" Value="{DynamicResource AccentBrush}" />
+                                <Setter TargetName="Knob" Property="HorizontalAlignment" Value="Right" />
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Track" Property="Opacity" Value="0.5" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="MiniSwitch" TargetType="Button" BasedOn="{StaticResource Switch}">
+            <Setter Property="LayoutTransform">
+                <Setter.Value>
+                    <ScaleTransform ScaleX="0.8" ScaleY="0.8" />
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Menus for strategy / preset (SwiftUI Menu) -->
+        <Style TargetType="ContextMenu">
+            <Setter Property="OverridesDefaultStyle" Value="True" />
+            <Setter Property="HasDropShadow" Value="True" />
+            <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ContextMenu">
+                        <Border Background="{DynamicResource MenuBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="8" Padding="4" Margin="0,0,6,6">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="12" ShadowDepth="2" Opacity="0.3" Direction="270" />
+                            </Border.Effect>
+                            <ScrollViewer MaxHeight="420" VerticalScrollBarVisibility="Auto">
+                                <ItemsPresenter />
+                            </ScrollViewer>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="MenuItem">
+            <Setter Property="OverridesDefaultStyle" Value="True" />
+            <Setter Property="Foreground" Value="{DynamicResource FgBrush}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="MenuItem">
+                        <Border x:Name="Root" Background="Transparent" CornerRadius="5" Padding="6,5,14,5">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock x:Name="Check" Text="&#xE73E;" FontFamily="{StaticResource IconFont}" FontSize="11" Width="20" VerticalAlignment="Center" Visibility="Hidden" />
+                                <ContentPresenter ContentSource="Header" VerticalAlignment="Center" TextBlock.Foreground="{TemplateBinding Foreground}" />
+                            </StackPanel>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Check" Property="Visibility" Value="Visible" />
+                            </Trigger>
+                            <Trigger Property="IsHighlighted" Value="True">
+                                <Setter TargetName="Root" Property="Background" Value="{DynamicResource AccentBrush}" />
+                                <Setter Property="Foreground" Value="White" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <Style x:Key="Mono" TargetType="TextBox">
+            <Setter Property="FontFamily" Value="Cascadia Mono, Consolas" />
+            <Setter Property="FontSize" Value="11" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Foreground" Value="{DynamicResource FgBrush}" />
+            <Setter Property="CaretBrush" Value="{DynamicResource FgBrush}" />
+            <Setter Property="SelectionBrush" Value="{DynamicResource AccentBrush}" />
+            <Setter Property="Padding" Value="2" />
+        </Style>
+        <Style TargetType="ScrollBar">
+            <Setter Property="Width" Value="6" />
+            <Setter Property="MinWidth" Value="6" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollBar">
+                        <Track x:Name="PART_Track" IsDirectionReversed="True">
+                            <Track.Thumb>
+                                <Thumb>
+                                    <Thumb.Template>
+                                        <ControlTemplate TargetType="Thumb">
+                                            <Border CornerRadius="3" Background="{DynamicResource TertiaryBrush}" />
+                                        </ControlTemplate>
+                                    </Thumb.Template>
+                                </Thumb>
+                            </Track.Thumb>
+                        </Track>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="Orientation" Value="Horizontal">
+                    <Setter Property="Width" Value="Auto" />
+                    <Setter Property="MinWidth" Value="0" />
+                    <Setter Property="Height" Value="0" />
+                    <Setter Property="Visibility" Value="Collapsed" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+
+    <Grid Margin="8">
+        <!-- shadow lives on its own layer so text is not rendered through an effect -->
+        <Border CornerRadius="16" Background="{DynamicResource BgBrush}">
+            <Border.Effect>
+                <DropShadowEffect BlurRadius="16" ShadowDepth="3" Opacity="0.35" Direction="270" />
+            </Border.Effect>
+        </Border>
+        <Border CornerRadius="16" Background="{DynamicResource BgBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" Padding="12">
+            <StackPanel>
+                <!-- notice banner -->
+                <Border x:Name="NoticeBanner" CornerRadius="12" Padding="10" Margin="0,0,0,8" Visibility="{Binding HasNotice, Converter={StaticResource Vis}}">
+                    <Border.Style>
+                        <Style TargetType="Border">
+                            <Setter Property="Background" Value="{DynamicResource AccentSoftBrush}" />
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding NoticeError}" Value="True">
+                                    <Setter Property="Background" Value="{DynamicResource RedSoftBrush}" />
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Border.Style>
+                    <DockPanel>
+                        <TextBlock DockPanel.Dock="Left" Text="{Binding NoticeGlyph}" FontFamily="{StaticResource IconFont}" FontSize="12" Margin="0,1,8,0" VerticalAlignment="Top">
+                            <TextBlock.Style>
+                                <Style TargetType="TextBlock">
+                                    <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding NoticeError}" Value="True">
+                                            <Setter Property="Foreground" Value="{DynamicResource RedBrush}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </TextBlock.Style>
+                        </TextBlock>
+                        <Button DockPanel.Dock="Right" Style="{StaticResource Plain}" Click="DismissNotice_Click" VerticalAlignment="Top" Margin="4,0,0,0">
+                            <TextBlock Text="&#xE711;" FontFamily="{StaticResource IconFont}" FontSize="9" Foreground="{DynamicResource TertiaryBrush}" Margin="2" />
+                        </Button>
+                        <TextBlock Text="{Binding Notice}" FontSize="11.5" TextWrapping="Wrap" />
+                    </DockPanel>
+                </Border>
+
+                <!-- ===== main page ===== -->
+                <StackPanel Visibility="{Binding IsMain, Converter={StaticResource Vis}}">
+                    <Grid Margin="0,0,0,10">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="*" />
+                            <ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
+                        <Grid Width="34" Height="34">
+                            <Ellipse x:Name="HeaderCircle" />
+                            <Path x:Name="HeaderCloud" Width="18" Height="14" Stretch="Uniform" StrokeThickness="1.6" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Grid>
+                        <StackPanel Grid.Column="1" Margin="10,0,8,0" VerticalAlignment="Center">
+                            <TextBlock Text="Nimbus" FontSize="14" FontWeight="SemiBold" />
+                            <TextBlock Text="{Binding StatusTitle}" Style="{StaticResource Caption}" />
+                        </StackPanel>
+                        <Button Grid.Column="2" Style="{StaticResource Switch}" Tag="{Binding Running}" IsEnabled="{Binding NotBusy}" Click="ToggleService_Click" ToolTip="Включить / выключить" />
+                    </Grid>
+
+                    <Border Style="{StaticResource Group}">
+                        <StackPanel>
+                            <!-- Discord | YouTube -->
+                            <Grid Margin="0,9">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="1" />
+                                    <ColumnDefinition Width="*" />
+                                </Grid.ColumnDefinitions>
+                                <StackPanel Orientation="Horizontal" Margin="2,0">
+                                    <Ellipse Width="7" Height="7" Fill="{Binding Discord, Converter={StaticResource HealthBrush}}" Margin="0,1,7,0" />
+                                    <TextBlock Text="Discord" />
+                                </StackPanel>
+                                <Border Grid.Column="1" Height="16" Background="{DynamicResource HairlineBrush}" />
+                                <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="10,0,2,0">
+                                    <Ellipse Width="7" Height="7" Fill="{Binding YouTube, Converter={StaticResource HealthBrush}}" Margin="0,1,7,0" />
+                                    <TextBlock Text="YouTube" />
+                                </StackPanel>
+                            </Grid>
+                            <Border Style="{StaticResource Hairline}" />
+                            <Button x:Name="StrategyRow" Style="{StaticResource Row}" Click="StrategyRow_Click" IsEnabled="{Binding NotBusy}">
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Left" Style="{StaticResource Glyph}" Text="&#xE9E9;" Margin="0,0,10,0" />
+                                    <TextBlock DockPanel.Dock="Right" Style="{StaticResource Chevron}" />
+                                    <TextBlock DockPanel.Dock="Right" Text="{Binding StrategyName}" Foreground="{DynamicResource SecondaryBrush}" MaxWidth="130" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Text="Стратегия" />
+                                </DockPanel>
+                            </Button>
+                            <Border Style="{StaticResource Hairline}" />
+                            <DockPanel Margin="0,6">
+                                <TextBlock DockPanel.Dock="Left" Style="{StaticResource Glyph}" Text="&#xE7E8;" Margin="0,0,10,0" />
+                                <Button DockPanel.Dock="Right" Style="{StaticResource MiniSwitch}" Tag="{Binding LoginEnabled}" Click="ToggleLogin_Click" />
+                                <TextBlock Text="Автозапуск" VerticalAlignment="Center" />
+                            </DockPanel>
+                            <Border Style="{StaticResource Hairline}" />
+                            <Button x:Name="PresetRow" Style="{StaticResource Row}" Click="PresetRow_Click" IsEnabled="{Binding NotBusy}">
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Left" Style="{StaticResource Glyph}" Text="&#xE81E;" Margin="0,0,10,0" />
+                                    <TextBlock DockPanel.Dock="Right" Style="{StaticResource Chevron}" />
+                                    <TextBlock DockPanel.Dock="Right" Text="{Binding IpsetTitle}" Foreground="{DynamicResource SecondaryBrush}" />
+                                    <TextBlock Text="Пресет" />
+                                </DockPanel>
+                            </Button>
+                        </StackPanel>
+                    </Border>
+
+                    <!-- live test banner -->
+                    <Button Style="{StaticResource Plain}" Click="More_Click" Margin="0,0,0,10" Visibility="{Binding Testing, Converter={StaticResource Vis}}">
+                        <Border CornerRadius="12" Padding="10,8" Background="{DynamicResource AccentSoftBrush}">
+                            <DockPanel>
+                                <local:Spinner DockPanel.Dock="Left" Width="12" Height="12" Margin="0,0,8,0" />
+                                <TextBlock DockPanel.Dock="Right" Style="{StaticResource Chevron}" />
+                                <TextBlock Text="{Binding LiveTestText}" FontSize="11.5" TextTrimming="CharacterEllipsis" />
+                            </DockPanel>
+                        </Border>
+                    </Button>
+
+                    <DockPanel Margin="4,0">
+                        <Button DockPanel.Dock="Left" Style="{StaticResource Link}" Content="Ещё" Click="More_Click" />
+                        <Button Style="{StaticResource Plain}" HorizontalAlignment="Right" Click="Quit_Click">
+                            <TextBlock Text="Выход" Foreground="{DynamicResource SecondaryBrush}" />
+                        </Button>
+                    </DockPanel>
+                </StackPanel>
+
+                <!-- ===== more page ===== -->
+                <StackPanel Visibility="{Binding IsMore, Converter={StaticResource Vis}}">
+                    <Button Style="{StaticResource Link}" Click="Back_Click" Margin="0,0,0,10">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE76B;" FontFamily="{StaticResource IconFont}" FontSize="10" VerticalAlignment="Center" Margin="0,1,6,0" />
+                            <TextBlock Text="Ещё" />
+                        </StackPanel>
+                    </Button>
+
+                    <!-- test results -->
+                    <Border CornerRadius="12" Padding="10" Margin="0,0,0,10" Background="{DynamicResource GroupBrush}" Visibility="{Binding HasTestPanel, Converter={StaticResource Vis}}">
+                        <StackPanel>
+                            <TextBlock Text="{Binding TestProgress}" Style="{StaticResource Caption}" Margin="0,0,0,6" TextWrapping="Wrap" Visibility="{Binding HasTestProgress, Converter={StaticResource Vis}}" />
+                            <ScrollViewer MaxHeight="150" VerticalScrollBarVisibility="Auto" Visibility="{Binding HasTestRows, Converter={StaticResource Vis}}">
+                                <ItemsControl ItemsSource="{Binding TestRows}">
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Button Style="{StaticResource Plain}" Click="TestRow_Click" Tag="{Binding Name}" Padding="0,3"
+                                                    IsEnabled="{Binding DataContext.CanApplyRow, RelativeSource={RelativeSource AncestorType=Window}}">
+                                                <DockPanel>
+                                                    <TextBlock DockPanel.Dock="Right" Text="&#xE735;" FontFamily="{StaticResource IconFont}" FontSize="8" Margin="5,0,0,0" VerticalAlignment="Center"
+                                                               Foreground="{DynamicResource AccentBrush}" Visibility="{Binding IsBest, Converter={StaticResource Vis}}" />
+                                                    <TextBlock DockPanel.Dock="Right" Text="{Binding Score}" FontSize="11.5">
+                                                        <TextBlock.Style>
+                                                            <Style TargetType="TextBlock">
+                                                                <Setter Property="Foreground" Value="{DynamicResource SecondaryBrush}" />
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding IsBest}" Value="True">
+                                                                        <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+                                                                        <Setter Property="FontWeight" Value="SemiBold" />
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </TextBlock.Style>
+                                                    </TextBlock>
+                                                    <TextBlock Text="{Binding Name}" FontSize="11.5" TextTrimming="CharacterEllipsis">
+                                                        <TextBlock.Style>
+                                                            <Style TargetType="TextBlock">
+                                                                <Setter Property="Foreground" Value="{DynamicResource SecondaryBrush}" />
+                                                                <Style.Triggers>
+                                                                    <DataTrigger Binding="{Binding IsBest}" Value="True">
+                                                                        <Setter Property="Foreground" Value="{DynamicResource FgBrush}" />
+                                                                    </DataTrigger>
+                                                                </Style.Triggers>
+                                                            </Style>
+                                                        </TextBlock.Style>
+                                                    </TextBlock>
+                                                </DockPanel>
+                                            </Button>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                            <TextBlock Text="{Binding TestBest}" FontSize="11.5" FontWeight="SemiBold" TextWrapping="Wrap" Margin="0,6,0,0" Visibility="{Binding HasTestBest, Converter={StaticResource Vis}}" />
+                            <Button Style="{StaticResource Plain}" Click="ApplyBest_Click" Margin="0,8,0,0" IsEnabled="{Binding NotBusy}" Visibility="{Binding ApplyBestEnabled, Converter={StaticResource Vis}}">
+                                <Border CornerRadius="8" Padding="0,7" Background="{DynamicResource AccentBrush}">
+                                    <TextBlock Text="{Binding ApplyBestTitle}" Foreground="White" FontSize="11.5" FontWeight="SemiBold" HorizontalAlignment="Center" TextTrimming="CharacterEllipsis" />
+                                </Border>
+                            </Button>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Group}">
+                        <StackPanel>
+                            <Button Style="{StaticResource Row}" Click="TestStrategies_Click" IsEnabled="{Binding TestEnabled}">
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Left" Style="{StaticResource Glyph}" Text="&#xE9D9;" Margin="0,0,10,0" />
+                                    <TextBlock DockPanel.Dock="Right" Style="{StaticResource Chevron}" />
+                                    <TextBlock Text="{Binding TestTitle}">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding Testing}" Value="True">
+                                                        <Setter Property="Foreground" Value="{DynamicResource RedBrush}" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </DockPanel>
+                            </Button>
+                            <Border Style="{StaticResource Hairline}" />
+                            <Button Style="{StaticResource Row}" Click="Lists_Click">
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Left" Style="{StaticResource Glyph}" Text="&#xE8FD;" Margin="0,0,10,0" />
+                                    <TextBlock DockPanel.Dock="Right" Style="{StaticResource Chevron}" />
+                                    <TextBlock Text="Списки" />
+                                </DockPanel>
+                            </Button>
+                            <Border Style="{StaticResource Hairline}" />
+                            <Button Style="{StaticResource Row}" Click="Logs_Click">
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Left" Style="{StaticResource Glyph}" Text="&#xE8E4;" Margin="0,0,10,0" />
+                                    <TextBlock DockPanel.Dock="Right" Style="{StaticResource Chevron}" />
+                                    <TextBlock Text="Логи" />
+                                </DockPanel>
+                            </Button>
+                            <StackPanel Visibility="{Binding ShowRestart, Converter={StaticResource Vis}}">
+                                <Border Style="{StaticResource Hairline}" />
+                                <Button Style="{StaticResource Row}" Click="Restart_Click" IsEnabled="{Binding CanRestart}">
+                                    <DockPanel>
+                                        <TextBlock DockPanel.Dock="Left" Style="{StaticResource Glyph}" Text="&#xE72C;" Margin="0,0,10,0" />
+                                        <TextBlock DockPanel.Dock="Right" Style="{StaticResource Chevron}" />
+                                        <TextBlock Text="Перезапустить" />
+                                    </DockPanel>
+                                </Button>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Group}">
+                        <StackPanel>
+                            <StackPanel Visibility="{Binding ShowUpdateRow, Converter={StaticResource Vis}}">
+                                <Button Style="{StaticResource Row}" Click="InstallUpdate_Click" IsEnabled="{Binding UpdateRowEnabled}">
+                                    <DockPanel>
+                                        <TextBlock DockPanel.Dock="Left" Style="{StaticResource Glyph}" Text="&#xE896;" Margin="0,0,10,0" />
+                                        <TextBlock DockPanel.Dock="Right" Style="{StaticResource Chevron}" />
+                                        <TextBlock Text="{Binding UpdateRowTitle}" />
+                                    </DockPanel>
+                                </Button>
+                                <Border Style="{StaticResource Hairline}" />
+                            </StackPanel>
+                            <Button Style="{StaticResource Row}" Click="GitHub_Click">
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Left" Style="{StaticResource Glyph}" Text="&#xE71B;" Margin="0,0,10,0" />
+                                    <TextBlock DockPanel.Dock="Right" Style="{StaticResource Chevron}" />
+                                    <TextBlock Text="GitHub" />
+                                </DockPanel>
+                            </Button>
+                        </StackPanel>
+                    </Border>
+
+                    <StackPanel Margin="4,0">
+                        <TextBlock Text="{Binding FooterVersion}" Style="{StaticResource Caption}" Foreground="{DynamicResource TertiaryBrush}" />
+                        <TextBlock Text="На основе Flowseal · bol-van/zapret" Style="{StaticResource Caption}" Foreground="{DynamicResource TertiaryBrush}" Margin="0,2,0,0" />
+                    </StackPanel>
+                </StackPanel>
+
+                <!-- ===== logs page ===== -->
+                <StackPanel Visibility="{Binding IsLogs, Converter={StaticResource Vis}}">
+                    <DockPanel Margin="0,0,0,10">
+                        <Button DockPanel.Dock="Right" Style="{StaticResource Link}" Content="Копировать" FontSize="11.5" Click="CopyLogs_Click" IsEnabled="{Binding HasLogs}" />
+                        <Button Style="{StaticResource Link}" Click="Back_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE76B;" FontFamily="{StaticResource IconFont}" FontSize="10" VerticalAlignment="Center" Margin="0,1,6,0" />
+                                <TextBlock Text="Логи" />
+                            </StackPanel>
+                        </Button>
+                    </DockPanel>
+                    <Border CornerRadius="12" Padding="8" Background="{DynamicResource GroupBrush}">
+                        <TextBox x:Name="LogsBox" Style="{StaticResource Mono}" Height="280" IsReadOnly="True" TextWrapping="Wrap"
+                                 VerticalScrollBarVisibility="Auto" Text="{Binding LogsText, Mode=OneWay}" />
+                    </Border>
+                </StackPanel>
+
+                <!-- ===== lists page ===== -->
+                <StackPanel Visibility="{Binding IsLists, Converter={StaticResource Vis}}">
+                    <Button Style="{StaticResource Link}" Click="Back_Click" Margin="0,0,0,10">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE76B;" FontFamily="{StaticResource IconFont}" FontSize="10" VerticalAlignment="Center" Margin="0,1,6,0" />
+                            <TextBlock Text="Списки" />
+                        </StackPanel>
+                    </Button>
+                    <Border Style="{StaticResource Group}">
+                        <ItemsControl ItemsSource="{Binding Lists}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel>
+                                        <Border Style="{StaticResource Hairline}" Visibility="{Binding ShowSeparator, Converter={StaticResource Vis}}" />
+                                        <Button Style="{StaticResource Row}" Padding="0,8" Click="ListRow_Click" Tag="{Binding Info.Id}">
+                                            <DockPanel>
+                                                <TextBlock DockPanel.Dock="Left" Style="{StaticResource Glyph}" Text="{Binding Glyph}" Margin="0,0,10,0" />
+                                                <TextBlock DockPanel.Dock="Right" Style="{StaticResource Chevron}" />
+                                                <StackPanel>
+                                                    <StackPanel Orientation="Horizontal">
+                                                        <TextBlock Text="{Binding Info.Title}" />
+                                                        <Border CornerRadius="7" Padding="5,0,5,1" Margin="6,0,0,0" VerticalAlignment="Center" Background="{DynamicResource AccentSoftBrush}"
+                                                                Visibility="{Binding HasBadge, Converter={StaticResource Vis}}">
+                                                            <TextBlock Text="{Binding Info.Badge}" FontSize="10" FontWeight="SemiBold" Foreground="{DynamicResource AccentBrush}" />
+                                                        </Border>
+                                                    </StackPanel>
+                                                    <TextBlock Text="{Binding Info.Detail}" Style="{StaticResource Caption}" Margin="0,1,0,0" />
+                                                </StackPanel>
+                                            </DockPanel>
+                                        </Button>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Border>
+                </StackPanel>
+
+                <!-- ===== list editor ===== -->
+                <StackPanel Visibility="{Binding IsEditor, Converter={StaticResource Vis}}">
+                    <DockPanel Margin="0,0,0,10">
+                        <Button DockPanel.Dock="Right" Style="{StaticResource Link}" Content="Сохранить" FontSize="11.5" Click="SaveList_Click" IsEnabled="{Binding NotBusy}" />
+                        <Button Style="{StaticResource Link}" Click="Back_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE76B;" FontFamily="{StaticResource IconFont}" FontSize="10" VerticalAlignment="Center" Margin="0,1,6,0" />
+                                <TextBlock Text="{Binding EditorTitle}" />
+                            </StackPanel>
+                        </Button>
+                    </DockPanel>
+                    <Border CornerRadius="12" Padding="6" Background="{DynamicResource GroupBrush}">
+                        <TextBox Style="{StaticResource Mono}" Height="240" AcceptsReturn="True" AcceptsTab="False" TextWrapping="Wrap"
+                                 HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
+                                 Text="{Binding EditorText, UpdateSourceTrigger=PropertyChanged}" />
+                    </Border>
+                </StackPanel>
+            </StackPanel>
+        </Border>
+    </Grid>
+</Window>
