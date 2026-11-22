@@ -44,12 +44,10 @@ internal static class Screens
             {
                 m.Running = true;
                 m.Page = HudPage.More;
-                m.TestRows = strategies.Take(6).Select((s, i) => new TestRow(s.Name, i == 4 ? "ошибка" : $"{20 + i}/27", i == 3)).ToList();
+                m.TestRows = strategies.Take(5).Select((s, i) => new TestRow(s.Name, i == 4 ? "ошибка" : $"{20 + i}/27", i == 3)).ToList();
                 m.TestBest = $"Лучшая: {strategies[3].Name} (23/27)";
                 m.ApplyBestEnabled = true;
                 m.TestTitle = "Повторить тест";
-                m.VersionTitle = "Обновить до 1.3.1";
-                m.CanInstallUpdate = true;
             });
             Shoot(dir, $"{theme}-5-logs", strategies, m =>
             {
