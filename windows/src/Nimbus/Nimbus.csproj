@@ -1,0 +1,57 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <LangVersion>latest</LangVersion>
+    <AssemblyName>Nimbus</AssemblyName>
+    <RootNamespace>Nimbus</RootNamespace>
+    <StartupObject>Nimbus.Program</StartupObject>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>Assets\nimbus.ico</ApplicationIcon>
+    <!-- Keep in sync with macos/Info.plist CFBundleShortVersionString (CI checks this). -->
+    <Version>1.3.0</Version>
+    <Product>Nimbus</Product>
+    <Company>Nimbus</Company>
+    <Description>Nimbus — zapret для Windows</Description>
+    <Copyright>bol-van, Flowseal, Nimbus</Copyright>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DebugType>embedded</DebugType>
+    <SatelliteResourceLanguages>ru;en</SatelliteResourceLanguages>
+    <InvariantGlobalization>false</InvariantGlobalization>
+    <NoWarn>$(NoWarn);CA1416;WFAC010</NoWarn>
+    <!-- Engine binaries (winws.exe, WinDivert) are downloaded by build.ps1 into windows/engine. -->
+    <EngineDir>$(MSBuildThisFileDirectory)..\..\engine\</EngineDir>
+    <PayloadDir>$(MSBuildThisFileDirectory)..\..\..\macos\Payload\</PayloadDir>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Nimbus.Core\Nimbus.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Strategies, fake payloads and lists are shared with the Mac app (macos/Payload). -->
+    <EmbeddedResource Include="$(PayloadDir)strategies.tsv" LogicalName="payload/strategies.tsv" />
+    <EmbeddedResource Include="$(PayloadDir)ipset-none.txt" LogicalName="payload/ipset-none.txt" />
+    <EmbeddedResource Include="$(PayloadDir)ipset-any.txt" LogicalName="payload/ipset-any.txt" />
+    <EmbeddedResource Include="$(PayloadDir)strategies\*.conf.in" LogicalName="payload/strategies/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="$(PayloadDir)bin\*.bin" LogicalName="payload/bin/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="$(PayloadDir)default-lists\*.txt" LogicalName="payload/default-lists/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="$(EngineDir)*.exe;$(EngineDir)*.dll;$(EngineDir)*.sys" LogicalName="engine/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="$(EngineDir)VERSION" LogicalName="engine/VERSION" Condition="Exists('$(EngineDir)VERSION')" />
+    <Resource Include="Assets\nimbus.ico" />
+  </ItemGroup>
+
+  <Target Name="CheckEngine" BeforeTargets="Build" Condition="'$(AllowMissingEngine)' != 'true'">
+    <Error Condition="!Exists('$(EngineDir)winws.exe') Or !Exists('$(EngineDir)WinDivert64.sys') Or !Exists('$(EngineDir)WinDivert.dll') Or !Exists('$(EngineDir)cygwin1.dll')"
+           Text="windows/engine is missing winws.exe/WinDivert. Run windows/build.ps1 (or pass -p:AllowMissingEngine=true for a UI-only build)." />
+  </Target>
+</Project>

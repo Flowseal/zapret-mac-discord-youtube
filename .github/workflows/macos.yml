@@ -3,14 +3,14 @@ name: Build macOS Universal
 on:
   push:
     branches: [master, nimbus-minibar]
-    paths-ignore: ['**.md', 'docs/**']
+    paths-ignore: ['**.md', 'docs/**', 'windows/**', '.github/workflows/windows.yml']
   pull_request:
-    paths-ignore: ['**.md', 'docs/**']
+    paths-ignore: ['**.md', 'docs/**', 'windows/**', '.github/workflows/windows.yml']
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
       - name: Build

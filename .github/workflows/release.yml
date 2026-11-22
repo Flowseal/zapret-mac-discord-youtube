@@ -1,10 +1,10 @@
-name: Release macOS artifact
+name: Release
 
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag, e.g. v1.2.0"
+        description: "Release tag, e.g. v1.3.0 (a tag with a suffix like v1.3.0-beta.1 becomes a prerelease)"
         required: true
         type: string
   push:
@@ -14,12 +14,12 @@ on:
 permissions:
   contents: write
 
-jobs:
-  release:
-    runs-on: macos-14
-    env:
-      TAG: ${{ github.event.inputs.tag || github.ref_name }}
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
 
+jobs:
+  macos:
+    runs-on: macos-15
     steps:
       - uses: actions/checkout@v4
         with:
@@ -43,15 +43,68 @@ jobs:
           lipo build/macos/Nimbus.app/Contents/MacOS/Nimbus -verify_arch x86_64 arm64
           lipo build/macos/Nimbus.app/Contents/Resources/Payload/bin/utunws -verify_arch x86_64 arm64
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          path: dist/Nimbus-macOS-universal.zip
+          if-no-files-found: error
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Build
+        shell: pwsh
+        run: ./windows/build.ps1
+
+      - name: Check exe
+        shell: pwsh
+        run: |
+          $exe = "dist/Nimbus-Windows-x64.exe"
+          $info = (Get-Item $exe).VersionInfo
+          $app = "$($info.FileMajorPart).$($info.FileMinorPart).$($info.FileBuildPart)"
+          $tag = ($env:TAG -replace '^[vV]', '') -replace '-.*$', ''
+          if ($app -ne $tag) { throw "App version $app does not match tag $env:TAG" }
+          $p = Start-Process -FilePath $exe -ArgumentList '--self-test', "$PWD\self-test.txt" -Wait -PassThru
+          Get-Content self-test.txt
+          if ($p.ExitCode -ne 0) { throw "self-test failed" }
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: dist/Nimbus-Windows-x64.exe
+          if-no-files-found: error
+
+  publish:
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          ls -la dist
+          FILES="dist/Nimbus-macOS-universal.zip dist/Nimbus-Windows-x64.exe"
           if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
-            gh release upload "$TAG" dist/Nimbus-macOS-universal.zip --clobber --repo "${{ github.repository }}"
+            gh release upload "$TAG" $FILES --clobber --repo "${{ github.repository }}"
           else
-            gh release create "$TAG" dist/Nimbus-macOS-universal.zip \
+            PRERELEASE=""
+            case "$TAG" in *-*) PRERELEASE="--prerelease" ;; esac
+            gh release create "$TAG" $FILES \
               --repo "${{ github.repository }}" \
               --title "Nimbus $TAG" \
-              --generate-notes
+              --generate-notes $PRERELEASE
           fi

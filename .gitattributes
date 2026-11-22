@@ -1,2 +1,3 @@
 * text=auto eol=lf
 *.bin binary
+*.ico binary
