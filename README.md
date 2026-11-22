@@ -2,6 +2,34 @@
 
 Приложение для строки меню macOS и области уведомлений Windows, которое запускает zapret для обхода блокировок Discord и YouTube. Основано на [Flowseal/zapret-mac-discord-youtube](https://github.com/Flowseal/zapret-mac-discord-youtube), движок — [bol-van/zapret](https://github.com/bol-van/zapret).
 
+
+<table>
+  <tr>
+    <th>Windows</th>
+    <th>macOS</th>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/windows-dark-main.png" width="260" alt="Nimbus для Windows, главная панель"></td>
+    <td><img src="docs/screenshots/macos-dark-main.png" width="260" alt="Nimbus для macOS, главная панель"></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/windows-light-more.png" width="260" alt="Nimbus для Windows, «Ещё» и тест стратегий"></td>
+    <td><img src="docs/screenshots/macos-light-more.png" width="260" alt="Nimbus для macOS, «Ещё» и тест стратегий"></td>
+  </tr>
+</table>
+
+<details>
+<summary>Другие темы</summary>
+
+| Windows | macOS |
+| --- | --- |
+| <img src="docs/screenshots/windows-light-main.png" width="260" alt="Windows, светлая тема"> | <img src="docs/screenshots/macos-light-main.png" width="260" alt="macOS, светлая тема"> |
+| <img src="docs/screenshots/windows-dark-more.png" width="260" alt="Windows, «Ещё», тёмная тема"> | <img src="docs/screenshots/macos-dark-more.png" width="260" alt="macOS, «Ещё», тёмная тема"> |
+
+</details>
+
+Скриншоты сняты с настоящего интерфейса на примерных данных, workflow `Screenshots` и `Build Windows x64`.
+
 ## Требования (macOS)
 
 - macOS 14 или новее, Intel или Apple Silicon.
