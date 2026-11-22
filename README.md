@@ -2,7 +2,6 @@
 
 Приложение для строки меню macOS и области уведомлений Windows, которое запускает zapret для обхода блокировок Discord и YouTube. Основано на [Flowseal/zapret-mac-discord-youtube](https://github.com/Flowseal/zapret-mac-discord-youtube), движок — [bol-van/zapret](https://github.com/bol-van/zapret).
 
-
 <table>
   <tr>
     <th>Windows</th>
@@ -28,7 +27,7 @@
 
 </details>
 
-Скриншоты сняты с настоящего интерфейса на примерных данных, workflow `Screenshots` и `Build Windows x64`.
+Скриншоты отрендерены из настоящего интерфейса с примерными данными в CI (workflow `Screenshots` и `Build Windows x64`).
 
 ## Требования (macOS)
 
