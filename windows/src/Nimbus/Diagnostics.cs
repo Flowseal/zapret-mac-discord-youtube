@@ -21,7 +21,8 @@ internal static class SystemDiagnostics
             ConflictingServices(),
             VpnAdapters(),
         };
-        rows.AddRange(DnsAndHttps());
+        rows.Add(DnsCheck());
+        rows.Add(HttpsCheck());
         return rows;
     }
 
@@ -187,27 +188,24 @@ internal static class SystemDiagnostics
         return new DiagnosticRow("VPN", DiagnosticLevel.Pass, "активного VPN-туннеля не видно");
     }
 
-    private static IEnumerable<DiagnosticRow> DnsAndHttps()
+    private static DiagnosticRow DnsCheck()
     {
         try
         {
             var addrs = System.Net.Dns.GetHostAddresses("one.one.one.one");
-            if (addrs.Length == 0)
-            {
-                yield return new DiagnosticRow("DNS", DiagnosticLevel.Fail, "не резолвится one.one.one.one");
-            }
-            else
-            {
-                yield return new DiagnosticRow("DNS", DiagnosticLevel.Pass, addrs[0].ToString());
-            }
+            if (addrs.Length == 0) return new DiagnosticRow("DNS", DiagnosticLevel.Fail, "не резолвится one.one.one.one");
+            return new DiagnosticRow("DNS", DiagnosticLevel.Pass, addrs[0].ToString());
         }
         catch (Exception ex)
         {
-            yield return new DiagnosticRow("DNS", DiagnosticLevel.Fail, ex.Message);
+            return new DiagnosticRow("DNS", DiagnosticLevel.Fail, ex.Message);
         }
+    }
 
+    private static DiagnosticRow HttpsCheck()
+    {
         var https = Task.Run(() => Net.ProbeAsync("https://www.cloudflare.com/")).GetAwaiter().GetResult();
-        yield return https
+        return https
             ? new DiagnosticRow("HTTPS", DiagnosticLevel.Pass, "www.cloudflare.com отвечает")
             : new DiagnosticRow("HTTPS", DiagnosticLevel.Warn, "www.cloudflare.com не ответил за 3 с");
     }
