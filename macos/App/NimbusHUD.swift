@@ -25,7 +25,7 @@ enum HUDPage: String {
 struct UserEntry: Identifiable, Equatable {
     let file: String
     let value: String
-    var id: String { file + "	" + value }
+    var id: String { file + "\t" + value }
     var badge: String {
         switch file {
         case UserListIO.bypassDomains, UserListIO.bypassIpset: return "обход"

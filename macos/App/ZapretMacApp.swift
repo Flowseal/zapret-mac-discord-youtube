@@ -1117,7 +1117,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private static func formatDiagnosticReport(_ rows: [DiagnosticItem]) -> String {
-        let header = "Nimbus \(Bundle.main.object(forInfoDictionaryKey: \"CFBundleShortVersionString\") as? String ?? \"—\") · \(Date())"
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
+        let header = "Nimbus \(version) · \(Date())"
         var lines = [header, ""]
         for row in rows {
             let detail = row.detail.isEmpty ? "" : " — \(row.detail)"
