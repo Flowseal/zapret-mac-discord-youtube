@@ -36,7 +36,7 @@ struct RenderHUD {
                 m.ipsetMode = "loaded"
                 m.discord = .ok
                 m.youtube = .ok
-                m.versionTitle = "Версия 1.3.0"
+                m.versionTitle = "Версия 1.5.0"
             }
             shoot("\(out)/macos-\(theme)-more", dark: dark) { m in
                 m.strategies = strategies
@@ -52,7 +52,7 @@ struct RenderHUD {
                 m.testBest = "Лучшая: general (ALT3) (23/27)"
                 m.applyBestEnabled = true
                 m.testTitle = "Повторить тест"
-                m.versionTitle = "Версия 1.3.0"
+                m.versionTitle = "Версия 1.5.0"
             }
         }
         exit(0)
