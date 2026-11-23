@@ -48,26 +48,41 @@ internal static class Screens
                 m.TestRows = strategies.Take(5).Select((s, i) => new TestRow(s.Name, i == 4 ? "ошибка" : $"{20 + i}/27", i == 3)).ToList();
                 m.TestBest = $"Лучшая: {strategies[3].Name} (23/27)";
                 m.ApplyBestEnabled = true;
+            });
+            Shoot(dir, $"{theme}-5-diagnostics", strategies, m =>
+            {
+                m.Running = true;
+                m.Page = HudPage.Diagnostics;
+                m.VpnWarning = "маршрут через utun3";
+                m.Diagnostics = new[]
+                {
+                    new DiagnosticViewRow("OK", "winws", "работает копия Nimbus", false),
+                    new DiagnosticViewRow("WARN", "VPN", "WireGuard", true),
+                    new DiagnosticViewRow("FAIL", "TCP timestamps", "выключены", true),
+                };
+                m.DiagnosticText = "Nimbus 1.5.0\n";
                 m.TestTitle = "Повторить тест";
             });
-            Shoot(dir, $"{theme}-5-logs", strategies, m =>
+            Shoot(dir, $"{theme}-6-logs", strategies, m =>
             {
                 m.Page = HudPage.Logs;
                 m.Logs = "— nimbus.log —\n2026-11-22 17:40:01 started\n\n— engine.log —\n2026-11-22 17:40:02 — запуск: general-simple-fake, пресет none —\n2026-11-22 17:40:02 windivert initialized. capture is started.";
             });
-            Shoot(dir, $"{theme}-6-lists", strategies, m =>
+            Shoot(dir, $"{theme}-7-lists", strategies, m =>
             {
                 m.Page = HudPage.Lists;
+                m.ListInput = "";
+                m.UserEntries = new[] { new UserEntryRow(UserLists.BypassDomains, "chatgpt.com"), new UserEntryRow(UserLists.ExcludeDomains, "gosuslugi.ru") };
                 m.Lists = ListCatalog.Names.Select((n, i) => new ListRow(ListCatalog.Describe(n, n == "ipset-all.txt" ? 500_000 : 100, "a\nb\n"), i > 0)).ToList();
             });
-            Shoot(dir, $"{theme}-7-editor", strategies, m =>
+            Shoot(dir, $"{theme}-8-editor", strategies, m =>
             {
                 m.Page = HudPage.Editor;
                 m.EditorTitle = "Основные";
                 m.EditorText = "discord.com\nyoutube.com\nexample.org\n";
                 m.Notice = "Сохранено";
             });
-            Shoot(dir, $"{theme}-8-error", strategies, m =>
+            Shoot(dir, $"{theme}-9-error", strategies, m =>
             {
                 m.Notice = "winws не запустился.\n\nerror opening filter: access denied";
                 m.NoticeError = true;

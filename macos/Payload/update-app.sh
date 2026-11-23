@@ -52,7 +52,9 @@ if ! /usr/bin/ditto "$NEW_APP" "$TARGET_APP"; then
     exit 1
 fi
 /usr/sbin/chown -R "$OWNER:$GROUP" "$TARGET_APP"
-if ! /usr/bin/codesign --verify --deep --strict "$TARGET_APP" || ! /usr/bin/lipo "$TARGET_APP/Contents/MacOS/Nimbus" -verify_arch x86_64 arm64; then
+if ! /usr/bin/codesign --verify --deep --strict "$TARGET_APP" \
+    || ! /usr/bin/lipo "$TARGET_APP/Contents/MacOS/Nimbus" -verify_arch x86_64 \
+    || ! /usr/bin/lipo "$TARGET_APP/Contents/MacOS/Nimbus" -verify_arch arm64; then
     /bin/rm -rf "$TARGET_APP"
     /bin/mv "$BACKUP" "$TARGET_APP"
     reopen

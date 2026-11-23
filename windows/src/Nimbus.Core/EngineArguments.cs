@@ -19,18 +19,10 @@ public static class EngineArguments
             "--wf-tcp=" + WinDivertTcp + (ports == null ? "" : "," + ports.Value.Tcp),
             "--wf-udp=" + WinDivertUdp + (ports == null ? "" : "," + ports.Value.Udp),
         };
-        foreach (var raw in template.Split('\n'))
-        {
-            var line = Translate(raw, baseDir, listsDir, ipsetPath, separator);
-            if (line != null) args.Add(line);
-        }
+        foreach (var raw in template.Split('\n')) Append(args, raw, baseDir, listsDir, ipsetPath, separator);
         if (ports is { } game)
         {
-            foreach (var raw in GameProfiles(game.Tcp, game.Udp))
-            {
-                var line = Translate(raw, baseDir, listsDir, ipsetPath, separator);
-                if (line != null) args.Add(line);
-            }
+            foreach (var raw in GameProfiles(game.Tcp, game.Udp)) Append(args, raw, baseDir, listsDir, ipsetPath, separator);
         }
         return args;
     }
@@ -67,6 +59,18 @@ public static class EngineArguments
         yield return "--dpi-desync-any-protocol=1";
         yield return "--dpi-desync-fake-unknown-udp=\"@BASE@/bin/ACTIVE_GAME_UDP.bin\"";
         yield return "--dpi-desync-cutoff=n3";
+    }
+
+    private static void Append(List<string> args, string raw, string baseDir, string listsDir, string ipsetPath, char separator)
+    {
+        var line = Translate(raw, baseDir, listsDir, ipsetPath, separator);
+        if (line == null) return;
+        args.Add(line);
+        // Always attach the user IP bypass list to the same profile that already has IP excludes.
+        if (line.StartsWith("--ipset-exclude=", StringComparison.Ordinal) && line.EndsWith("ipset-exclude-user.txt", StringComparison.Ordinal))
+        {
+            args.Add("--ipset=" + TrimSeparators(listsDir) + separator + "ipset-all-user.txt");
+        }
     }
 
     private static string? Translate(string raw, string baseDir, string listsDir, string ipsetPath, char separator)

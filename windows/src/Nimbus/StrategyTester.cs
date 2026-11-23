@@ -13,6 +13,8 @@ using Nimbus.Core;
 namespace Nimbus;
 
 /// <summary>Port of macos/Payload/test-strategies.sh: same targets, same checks (ping, HTTP, TLS 1.2, TLS 1.3), same scoring.</summary>
+internal sealed record StrategyTestReport(string Summary, string? AutoApplyId, string? AutoApplyName);
+
 internal sealed class StrategyTester
 {
     private sealed record Target(string Host, IPAddress Ip, bool Ok);
@@ -20,17 +22,21 @@ internal sealed class StrategyTester
     public event Action<string>? Progress;
     public event Action<StrategyResult>? Result;
 
-    public async Task<string> RunAsync(IReadOnlyList<Strategy> strategies, string originalStrategy, string originalIpset, string originalGameFilter, bool originalRunning, CancellationToken cancel)
+    public async Task<StrategyTestReport> RunAsync(IReadOnlyList<Strategy> strategies, string originalStrategy, string originalIpset, string originalGameFilter, bool originalRunning, CancellationToken cancel, bool smart = false, string? extraHost = null)
     {
         var report = new StringBuilder();
         var best = new BestTracker();
         var cancelled = false;
         var maxTotal = 0;
+        string? autoApplyId = null, autoApplyName = null;
         try
         {
             Progress?.Invoke("Подготовка");
             await Task.Run(Engine.Stop);
-            var targets = (await Task.WhenAll(TestTargets.Hosts.Select(h => DiscoverAsync(h, cancel)))).ToList();
+            var hosts = TestTargets.Hosts.ToList();
+            var extra = HostEntry.Normalize(extraHost);
+            if (extra != null && !hosts.Contains(extra, StringComparer.OrdinalIgnoreCase)) hosts.Add(extra);
+            var targets = (await Task.WhenAll(hosts.Select(h => DiscoverAsync(h, cancel)))).ToList();
             cancel.ThrowIfCancellationRequested();
 
             var tls13 = Net.SupportsTls13;
@@ -39,11 +45,12 @@ internal sealed class StrategyTester
 
             report.AppendLine(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss zzz"));
             report.AppendLine(tls13 ? "TLS1.3: yes" : "TLS1.3: no");
+            if (smart) report.AppendLine("Mode: smart");
             report.AppendLine().AppendLine("IP:");
-            for (var i = 0; i < TestTargets.Hosts.Length; i++)
+            for (var i = 0; i < hosts.Count; i++)
             {
                 var t = targets[i];
-                report.AppendLine(t == null ? $"{TestTargets.Hosts[i],-30} -" : $"{t.Host,-30} {t.Ip,-15} {(t.Ok ? "ok" : "tcp")}");
+                report.AppendLine(t == null ? $"{hosts[i],-30} -" : $"{t.Host,-30} {t.Ip,-15} {(t.Ok ? "ok" : "tcp")}");
             }
             report.AppendLine().AppendLine($"{"Strategy",-34} {"Score",7} {"Ping",7} {"HTTP",7} {"TLS1.2",7} {"TLS1.3",7}");
             if (available.Count == 0) report.AppendLine("Нет доступных IP");
@@ -78,7 +85,7 @@ internal sealed class StrategyTester
                         ? Net.CheckAsync(t.Host, t.Ip, true, SslProtocols.Tls13, TimeSpan.FromSeconds(4), cancel)
                         : Task.FromResult(new Net.CheckResult(false, false, 0));
                     await Task.WhenAll(ping, http, tls12, tls13Task);
-                    return (Ping: ping.Result, Http: http.Result.Ok, Tls12: tls12.Result.Ok, Tls13: tls13Task.Result.Ok);
+                    return (t.Host, Ping: ping.Result, Http: http.Result.Ok, Tls12: tls12.Result.Ok, Tls13: tls13Task.Result.Ok);
                 });
                 var results = await Task.WhenAll(checks);
                 cancel.ThrowIfCancellationRequested();
@@ -91,6 +98,18 @@ internal sealed class StrategyTester
                 report.AppendLine($"{strategy.Name,-34} {score + "/" + maxTotal,7} {pingOk + "/" + n,7} {httpOk + "/" + n,7} {tls12Ok + "/" + n,7} {(tls13 ? tls13Ok + "/" + n : "-"),7}");
                 best.Add(result);
                 Result?.Invoke(result);
+                if (smart)
+                {
+                    var tlsByHost = results.ToDictionary(r => r.Host, r => r.Tls12 || r.Tls13, StringComparer.OrdinalIgnoreCase);
+                    if (StrategyOrder.PassesSmart(tlsByHost, extra))
+                    {
+                        autoApplyId = strategy.Id;
+                        autoApplyName = strategy.Name;
+                        best = new BestTracker();
+                        best.Add(result);
+                        break;
+                    }
+                }
             }
         }
         catch (OperationCanceledException)
@@ -115,9 +134,10 @@ internal sealed class StrategyTester
         }
 
         var summary = best.Summary(maxTotal, cancelled);
+        if (autoApplyName != null) summary = $"Лучшая: {autoApplyName} ({best.BestScore}/{maxTotal})";
         report.AppendLine().AppendLine(summary);
         try { File.WriteAllText(Paths.TestReport, report.ToString()); } catch { }
-        return summary;
+        return new StrategyTestReport(summary, autoApplyId, autoApplyName);
     }
 
     /// <summary>System DNS plus 1.1.1.1 and 8.8.8.8 (like dig in the Mac script), then the fastest IP that answers.</summary>

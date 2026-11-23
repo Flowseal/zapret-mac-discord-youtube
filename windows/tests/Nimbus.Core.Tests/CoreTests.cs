@@ -244,3 +244,229 @@ public class DnsTests
         Assert.Empty(DnsClient.ParseA(new byte[] { 0, 9, 0 }, 9));
     }
 }
+
+public class HostEntryTests
+{
+    [Theory]
+    [InlineData("https://youtu.be/dQw4w9WgXcQ?t=1", "youtu.be")]
+    [InlineData("http://WWW.YouTube.com/watch?v=1", "www.youtube.com")]
+    [InlineData("www.discord.com/invite/x", "www.discord.com")]
+    [InlineData("discord.com:443", "discord.com")]
+    [InlineData("  Open.spotify.com.  ", "open.spotify.com")]
+    [InlineData("chatgpt.com", "chatgpt.com")]
+    public void NormalizesUrlsAndDomains(string input, string expected)
+    {
+        var parsed = HostEntry.Parse(input);
+        Assert.NotNull(parsed);
+        Assert.Equal(HostKind.Domain, parsed!.Kind);
+        Assert.Equal(expected, parsed.Value);
+    }
+
+    [Fact]
+    public void ConvertsCyrillicToPunycode()
+    {
+        var parsed = HostEntry.Parse("https://пример.рф/path");
+        Assert.NotNull(parsed);
+        Assert.Equal(HostKind.Domain, parsed!.Kind);
+        Assert.Equal("xn--e1afmkfd.xn--p1ai", parsed.Value);
+        Assert.Equal(parsed.Value, HostEntry.Normalize("пример.рф"));
+    }
+
+    [Theory]
+    [InlineData("1.2.3.4", HostKind.IPv4, "1.2.3.4")]
+    [InlineData("1.2.3.0/24", HostKind.IPv4, "1.2.3.0/24")]
+    [InlineData("2001:db8::1", HostKind.IPv6, "2001:db8::1")]
+    [InlineData("[2001:db8::1]:443", HostKind.IPv6, "2001:db8::1")]
+    [InlineData("2001:db8::/32", HostKind.IPv6, "2001:db8::/32")]
+    public void ParsesAddresses(string input, HostKind kind, string expected)
+    {
+        var parsed = HostEntry.Parse(input);
+        Assert.NotNull(parsed);
+        Assert.Equal(kind, parsed!.Kind);
+        Assert.Equal(expected, parsed.Value);
+        Assert.True(parsed.IsIp);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("https://")]
+    [InlineData("not a host")]
+    [InlineData("-bad.com")]
+    [InlineData("localhost")]
+    [InlineData("1.2.3.4/33")]
+    [InlineData("999.1.1.1")]
+    [InlineData("ftp://example.com")]
+    public void RejectsJunk(string input) => Assert.Null(HostEntry.Parse(input));
+}
+
+public class UserListTests
+{
+    [Fact]
+    public void AddsAndRemovesWithoutDupes()
+    {
+        var text = UserLists.Add("", "example.com");
+        text = UserLists.Add(text, "example.com");
+        text = UserLists.Add(text, "other.com");
+        Assert.Equal("example.com\nother.com\n", text);
+        Assert.True(UserLists.Contains(text, "EXAMPLE.com"));
+        text = UserLists.Remove(text, "example.com");
+        Assert.Equal("other.com\n", text);
+        Assert.Equal(UserLists.BypassDomains, UserLists.FileFor(HostKind.Domain, false));
+        Assert.Equal(UserLists.ExcludeIpset, UserLists.FileFor(HostKind.IPv4, true));
+        Assert.Equal(UserLists.BypassIpset, UserLists.FileFor(HostKind.IPv6, false));
+    }
+}
+
+public class ListUpdaterTests
+{
+    [Fact]
+    public void AcceptsBundledUpstreamLists()
+    {
+        var dir = Path.Combine(AppContext.BaseDirectory, "payload", "default-lists");
+        foreach (var name in ListUpdater.UpstreamFiles)
+        {
+            var check = ListUpdater.Validate(name, File.ReadAllText(Path.Combine(dir, name)));
+            Assert.True(check.Ok, name + ": " + check.Reason);
+        }
+    }
+
+    [Fact]
+    public void RejectsHtmlEmptyAndUserFiles()
+    {
+        Assert.False(ListUpdater.Validate("list-general.txt", "<html>404</html>").Ok);
+        Assert.False(ListUpdater.Validate("list-general.txt", "").Ok);
+        Assert.False(ListUpdater.Validate("list-general-user.txt", "example.com\n").Ok);
+        Assert.False(ListUpdater.Validate("mystery.txt", "example.com\n").Ok);
+        Assert.False(ListUpdater.Validate("list-general.txt", "?????\n%%%%%\n#####\nnot a domain_at_all\n").Ok);
+    }
+
+    [Fact]
+    public void AppliesAtomicallyAndBacksUpWithoutTouchingUserFiles()
+    {
+        var root = Path.Combine(Path.GetTempPath(), "nimbus-lists-" + Guid.NewGuid().ToString("N"));
+        var lists = Path.Combine(root, "lists");
+        var backup = Path.Combine(root, "backup");
+        Directory.CreateDirectory(lists);
+        File.WriteAllText(Path.Combine(lists, "list-general.txt"), "old.com\n");
+        File.WriteAllText(Path.Combine(lists, "list-general-user.txt"), "keep.me\n");
+        ListUpdater.Apply(lists, new Dictionary<string, string>
+        {
+            ["list-general.txt"] = "fresh.example\n# comment\n",
+        }, backup);
+        Assert.Equal("fresh.example\n# comment\n", File.ReadAllText(Path.Combine(lists, "list-general.txt")));
+        Assert.Equal("old.com\n", File.ReadAllText(Path.Combine(backup, "list-general.txt")));
+        Assert.Equal("keep.me\n", File.ReadAllText(Path.Combine(lists, "list-general-user.txt")));
+        var ex = Assert.Throws<InvalidOperationException>(() =>
+            ListUpdater.Apply(lists, new Dictionary<string, string> { ["list-general-user.txt"] = "nope.com\n" }, backup));
+        Assert.Contains("user", ex.Message, StringComparison.OrdinalIgnoreCase);
+        Directory.Delete(root, true);
+    }
+}
+
+public class VpnSignatureTests
+{
+    [Theory]
+    [InlineData("Cloudflare WARP", "Cloudflare WARP", true)]
+    [InlineData("WireGuard Tunnel", "WireGuard Tunnel", true)]
+    [InlineData("wintun", "Wintun Userspace Tunnel", true)]
+    [InlineData("OpenVPN TAP", "TAP-Windows Adapter V9", true)]
+    [InlineData("sing-box tun", "sing-box", true)]
+    [InlineData("AmneziaVPN", "AmneziaWG", true)]
+    [InlineData("Ethernet", "Intel(R) Ethernet Connection", false)]
+    [InlineData("Wi-Fi", "Intel Wi-Fi 6", false)]
+    [InlineData("Teredo Tunneling Pseudo-Interface", "Microsoft Teredo", false)]
+    public void DetectsAdapters(string name, string description, bool vpn)
+    {
+        Assert.Equal(vpn, VpnSignatures.MatchAdapter(name, description).IsVpn);
+    }
+
+    [Fact]
+    public void DetectsProcessesAndMacRoutes()
+    {
+        Assert.True(VpnSignatures.MatchProcess("WireGuard.exe").IsVpn);
+        Assert.True(VpnSignatures.MatchProcess("CloudflareWARP").IsVpn);
+        Assert.False(VpnSignatures.MatchProcess("Nimbus").IsVpn);
+        Assert.True(VpnSignatures.MatchMacDefaultRoute("utun3").IsVpn);
+        Assert.False(VpnSignatures.MatchMacDefaultRoute("utun50").IsVpn);
+        Assert.False(VpnSignatures.MatchMacDefaultRoute("en0").IsVpn);
+        Assert.True(VpnSignatures.MatchMacDefaultRoute("ipsec0").IsVpn);
+    }
+}
+
+public class StrategyOrderTests
+{
+    private static readonly IReadOnlyList<Strategy> Sample =
+    [
+        new("general-alt9", "general (ALT9)"),
+        new("general-simple-fake", "general (SIMPLE FAKE)"),
+        new("general-alt", "general (ALT)"),
+        new("general", "general"),
+        new("general-exp", "general (EXP)"),
+        new("general-fake-tls-auto", "general (FAKE TLS AUTO)"),
+        new("general-alt2", "general (ALT2)"),
+    ];
+
+    [Fact]
+    public void PutsCurrentThenWinnersThenPreferredFirst()
+    {
+        var ordered = StrategyOrder.ForSmart(Sample, "general-exp", ["general (ALT9)", "missing"]);
+        Assert.Equal(new[]
+        {
+            "general-exp",
+            "general-alt9",
+            "general-simple-fake",
+            "general",
+            "general-alt",
+            "general-fake-tls-auto",
+            "general-alt2",
+        }, ordered.Select(s => s.Id).ToArray());
+        Assert.Equal(Sample.Count, ordered.Count);
+        Assert.Equal(Sample.Select(s => s.Id).OrderBy(x => x), ordered.Select(s => s.Id).OrderBy(x => x));
+    }
+
+    [Fact]
+    public void ParsesWinnersAndProgress()
+    {
+        Assert.Equal(new[] { "general (ALT2)", "general (ALT3)" }, StrategyOrder.ParseWinners("Лучшая: general (ALT2), general (ALT3) (12/27)"));
+        Assert.Empty(StrategyOrder.ParseWinners("Лучшая: не определена"));
+        Assert.True(StrategyOrder.TryParseProgress("Стратегия 4/21: general (ALT3)", out var current, out var total));
+        Assert.Equal(4, current);
+        Assert.Equal(21, total);
+        Assert.Equal(0.25, StrategyOrder.ProgressFraction("4 / 16"), 3);
+    }
+
+    [Fact]
+    public void SmartPassNeedsDiscordAndYouTube()
+    {
+        var tls = new Dictionary<string, bool>
+        {
+            ["discord.com"] = true,
+            ["www.youtube.com"] = true,
+        };
+        Assert.True(StrategyOrder.PassesSmart(tls));
+        tls["www.youtube.com"] = false;
+        Assert.False(StrategyOrder.PassesSmart(tls));
+        tls["www.youtube.com"] = true;
+        Assert.False(StrategyOrder.PassesSmart(tls, "chatgpt.com"));
+        tls["chatgpt.com"] = true;
+        Assert.True(StrategyOrder.PassesSmart(tls, "https://chatgpt.com/app"));
+    }
+}
+
+public class DiagnosticReportTests
+{
+    [Fact]
+    public void FormatsRows()
+    {
+        var text = DiagnosticReport.Format("Nimbus 1.5.0", new[]
+        {
+            new DiagnosticRow("TCP timestamps", DiagnosticLevel.Pass, "включены"),
+            new DiagnosticRow("VPN", DiagnosticLevel.Warn, "WireGuard"),
+            new DiagnosticRow("winws", DiagnosticLevel.Fail, "конфликт"),
+        });
+        Assert.Contains("[OK] TCP timestamps — включены", text);
+        Assert.Contains("[WARN] VPN — WireGuard", text);
+        Assert.Contains("[FAIL] winws — конфликт", text);
+    }
+}

@@ -19,7 +19,7 @@ env:
 
 jobs:
   macos:
-    runs-on: macos-15
+    runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
         with:
@@ -40,8 +40,10 @@ jobs:
             exit 1
           fi
           lipo -archs build/macos/Nimbus.app/Contents/MacOS/Nimbus
-          lipo build/macos/Nimbus.app/Contents/MacOS/Nimbus -verify_arch x86_64 arm64
-          lipo build/macos/Nimbus.app/Contents/Resources/Payload/bin/utunws -verify_arch x86_64 arm64
+          lipo build/macos/Nimbus.app/Contents/MacOS/Nimbus -verify_arch x86_64
+          lipo build/macos/Nimbus.app/Contents/MacOS/Nimbus -verify_arch arm64
+          lipo build/macos/Nimbus.app/Contents/Resources/Payload/bin/utunws -verify_arch x86_64
+          lipo build/macos/Nimbus.app/Contents/Resources/Payload/bin/utunws -verify_arch arm64
 
       - uses: actions/upload-artifact@v4
         with:
@@ -67,19 +69,24 @@ jobs:
       - name: Check exe
         shell: pwsh
         run: |
-          $exe = "dist/Nimbus-Windows-x64.exe"
-          $info = (Get-Item $exe).VersionInfo
-          $app = "$($info.FileMajorPart).$($info.FileMinorPart).$($info.FileBuildPart)"
-          $tag = ($env:TAG -replace '^[vV]', '') -replace '-.*$', ''
-          if ($app -ne $tag) { throw "App version $app does not match tag $env:TAG" }
-          $p = Start-Process -FilePath $exe -ArgumentList '--self-test', "$PWD\self-test.txt" -Wait -PassThru
+          foreach ($name in @("Nimbus-Windows-x64.exe", "Nimbus-Windows-x64-lite.exe")) {
+            $exe = "dist/$name"
+            if (-not (Test-Path $exe)) { throw "missing $exe" }
+            $info = (Get-Item $exe).VersionInfo
+            $app = "$($info.FileMajorPart).$($info.FileMinorPart).$($info.FileBuildPart)"
+            $tag = ($env:TAG -replace '^[vV]', '') -replace '-.*$', ''
+            if ($app -ne $tag) { throw "$name version $app does not match tag $env:TAG" }
+          }
+          $p = Start-Process -FilePath dist/Nimbus-Windows-x64.exe -ArgumentList '--self-test', "$PWD\self-test.txt" -Wait -PassThru
           Get-Content self-test.txt
           if ($p.ExitCode -ne 0) { throw "self-test failed" }
 
       - uses: actions/upload-artifact@v4
         with:
           name: release-windows
-          path: dist/Nimbus-Windows-x64.exe
+          path: |
+            dist/Nimbus-Windows-x64.exe
+            dist/Nimbus-Windows-x64-lite.exe
           if-no-files-found: error
 
   publish:
@@ -97,7 +104,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           ls -la dist
-          FILES="dist/Nimbus-macOS-universal.zip dist/Nimbus-Windows-x64.exe"
+          FILES="dist/Nimbus-macOS-universal.zip dist/Nimbus-Windows-x64.exe dist/Nimbus-Windows-x64-lite.exe"
           if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
             gh release upload "$TAG" $FILES --clobber --repo "${{ github.repository }}"
           else

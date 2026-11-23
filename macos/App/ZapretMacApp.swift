@@ -73,6 +73,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var iconTimer: Timer?
     private var iconPhase: Double = 0
     private var noticeTimer: Timer?
+    private var pausedByVpn = false
+    private var lastVpnProbe = Date.distantPast
+    private var startingSmartTest = false
 
     private let releaseURL = URL(string: "https://api.github.com/repos/relocpe/Nimbus/releases")!
     private let releaseAssetName = "Nimbus-macOS-universal.zip"
@@ -137,6 +140,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !fileManager.fileExists(atPath: ipsetFile.path) {
             try writeState("none", to: ipsetFile)
         }
+        let autoPauseFile = dataRoot.appendingPathComponent("vpn-autopause")
+        if !fileManager.fileExists(atPath: autoPauseFile.path) {
+            try writeState("0", to: autoPauseFile)
+        }
     }
 
     private func loadStrategies() throws -> [Strategy] {
@@ -181,6 +188,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hudModel.restartService = { [weak self] in self?.restartService() }
         hudModel.openGitHub = { [weak self] in self?.openGitHub() }
         hudModel.installUpdate = { [weak self] in self?.installUpdate() }
+        hudModel.findAndApply = { [weak self] in self?.findAndApply() }
+        hudModel.updateLists = { [weak self] in self?.updateLists() }
+        hudModel.openDiagnostics = { [weak self] in self?.openDiagnosticsPage() }
+        hudModel.copyDiagnostics = { [weak self] in self?.copyDiagnosticsReport() }
+        hudModel.toggleAutoPause = { [weak self] in self?.toggleAutoPause() }
+        hudModel.addBypass = { [weak self] in self?.addListEntry(exclude: false) }
+        hudModel.addExclude = { [weak self] in self?.addListEntry(exclude: true) }
+        hudModel.removeUserEntry = { [weak self] entry in self?.removeListEntry(entry) }
         hudModel.quit = { [weak self] in self?.quitApp() }
         hudModel.onShown = { [weak self] in self?.probeServices(force: true) }
         hudModel.dismissNotice = { [weak self] in self?.dismissNotice() }
@@ -230,7 +245,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         if hudModel.page == .lists {
             hudModel.lists = listInfos()
+            hudModel.userEntries = loadUserEntries()
         }
+        hudModel.autoPauseVpn = readState(from: dataRoot.appendingPathComponent("vpn-autopause")) == "1"
+        refreshVpnState()
         if updating {
             hudModel.versionTitle = "Установка обновления…"
             hudModel.canInstallUpdate = false
@@ -245,7 +263,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             hudModel.discord = .off
             hudModel.youtube = .off
         }
-        let layoutKey = "\(hudModel.page)|\(testing)|\(hudModel.testRows.count)|\(hudModel.testBest)|\(hudModel.testProgress)|\(hudModel.notice)|\(hudModel.lists.count)|\(hudModel.editorName)|\(hudModel.logs.count)"
+        let layoutKey = "\(hudModel.page)|\(testing)|\(hudModel.testRows.count)|\(hudModel.testBest)|\(hudModel.testProgress)|\(hudModel.notice)|\(hudModel.lists.count)|\(hudModel.editorName)|\(hudModel.logs.count)|\(hudModel.vpnWarning)|\(hudModel.userEntries.count)|\(hudModel.diagnostics.count)|\(hudModel.updatingLists)"
         if hud.isVisible, layoutKey != lastLayoutKey {
             lastLayoutKey = layoutKey
             hud.relayout()
@@ -335,6 +353,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc private func toggleService() {
+        pausedByVpn = false
         if isRunning() {
             runPrivileged(script: "stop.sh", arguments: [])
         } else {
@@ -370,6 +389,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func openListsPage() {
         hudModel.lists = listInfos()
+        hudModel.userEntries = loadUserEntries()
         hudModel.page = .lists
         hud.relayout()
     }
@@ -448,6 +468,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case "list-exclude.txt": return "Исключения"
         case "list-exclude-user.txt": return "Исключения"
         case "ipset-all.txt": return "IP-набор"
+        case "ipset-all-user.txt": return "IP-набор"
         case "ipset-exclude.txt": return "IP исключения"
         case "ipset-exclude-user.txt": return "IP исключения"
         default: return name
@@ -458,6 +479,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let names = [
             "list-general-user.txt",
             "list-exclude-user.txt",
+            "ipset-all-user.txt",
             "ipset-exclude-user.txt",
             "list-general.txt",
             "list-google.txt",
@@ -647,7 +669,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         try runProcess("/usr/bin/codesign", arguments: ["--verify", "--deep", "--strict", app.path])
         let executable = app.appendingPathComponent("Contents/MacOS/Nimbus")
-        try runProcess("/usr/bin/lipo", arguments: [executable.path, "-verify_arch", "x86_64", "arm64"])
+        try runProcess("/usr/bin/lipo", arguments: [executable.path, "-verify_arch", "x86_64"])
+        try runProcess("/usr/bin/lipo", arguments: [executable.path, "-verify_arch", "arm64"])
     }
 
     private func runProcess(_ path: String, arguments: [String]) throws {
@@ -689,10 +712,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
             return
         }
+        if !startingSmartTest {
+            hudModel.testIsSmart = false
+        }
+        startingSmartTest = false
+        writeTestPlan()
         try? fileManager.removeItem(at: report)
         try? fileManager.removeItem(at: live)
         try? fileManager.removeItem(at: bestFile)
         try? fileManager.removeItem(at: cancel)
+        try? fileManager.removeItem(at: dataRoot.appendingPathComponent("strategy-test-apply"))
         hudModel.testRows = []
         hudModel.testBest = ""
         hudModel.testProgress = "Подготовка"
@@ -713,6 +742,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self.testing = false
             self.cancellingTest = false
             try? self.fileManager.removeItem(at: cancel)
+            if self.hudModel.testIsSmart {
+                let apply = (try? String(contentsOf: self.dataRoot.appendingPathComponent("strategy-test-apply"), encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                if !apply.isEmpty, self.strategies.contains(where: { $0.id == apply }) {
+                    self.selectStrategy(id: apply)
+                    let name = self.strategies.first(where: { $0.id == apply })?.name ?? apply
+                    self.showNotice("Стратегия: \(name)")
+                }
+            }
             self.hudModel.page = .more
             self.refreshHUD()
             if let button = self.statusItem.button, !self.hud.isVisible {
@@ -916,7 +953,233 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func showInformation(_ message: String) {
+    private func findAndApply() {
+        if busy { return }
+        if testing {
+            if hudModel.testIsSmart { testStrategies() }
+            return
+        }
+        hudModel.testIsSmart = true
+        startingSmartTest = true
+        testStrategies()
+    }
+
+    private func writeTestPlan() {
+        let mode = hudModel.testIsSmart ? "smart" : "full"
+        try? writeState(mode, to: dataRoot.appendingPathComponent("strategy-test-mode"))
+        let extra = HostParser.normalize(hudModel.extraHost) ?? ""
+        try? writeState(extra, to: dataRoot.appendingPathComponent("strategy-test-extra"))
+        let winners = StrategyOrdering.parseWinners(hudModel.testBest)
+        let current = readState(from: dataRoot.appendingPathComponent("selected-strategy"))
+        let ordered = hudModel.testIsSmart ? StrategyOrdering.smartOrder(strategies, currentID: current, winners: winners) : strategies
+        let tsv = ordered.map { "\($0.id)\t\($0.name)" }.joined(separator: "\n") + "\n"
+        try? tsv.write(to: dataRoot.appendingPathComponent("strategy-test-order.tsv"), atomically: true, encoding: .utf8)
+    }
+
+    private func refreshVpnState() {
+        let now = Date()
+        if now.timeIntervalSince(lastVpnProbe) < 4 { return }
+        lastVpnProbe = now
+        let warning = VpnProbe.warning(for: VpnProbe.defaultInterface())
+        hudModel.vpnWarning = warning ?? ""
+        let auto = hudModel.autoPauseVpn
+        if auto, warning != nil, isRunning(), !testing, !busy, !updating {
+            pausedByVpn = true
+            runPrivileged(script: "stop.sh", arguments: []) { [weak self] failure in
+                if failure == nil { self?.showNotice("Nimbus на паузе: активен VPN") }
+            }
+            return
+        }
+        if auto, warning == nil, pausedByVpn, !isRunning(), !testing, !busy, !updating {
+            pausedByVpn = false
+            runPrivileged(script: "install.sh", arguments: [dataRoot.path]) { [weak self] failure in
+                if failure == nil { self?.showNotice("VPN выключен, Nimbus снова включён") }
+            }
+            return
+        }
+        if warning == nil, isRunning() { pausedByVpn = false }
+    }
+
+    private func toggleAutoPause() {
+        do {
+            let next = readState(from: dataRoot.appendingPathComponent("vpn-autopause")) != "1"
+            try writeState(next ? "1" : "0", to: dataRoot.appendingPathComponent("vpn-autopause"))
+            if !next { pausedByVpn = false }
+            refreshHUD()
+        } catch {
+            showError(error.localizedDescription)
+        }
+    }
+
+    private func updateLists() {
+        if busy || testing || hudModel.updatingLists { return }
+        hudModel.updatingLists = true
+        refreshHUD()
+        let listsDir = dataRoot.appendingPathComponent("lists", isDirectory: true)
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            guard let self else { return }
+            var failure: String?
+            var updated: [String] = []
+            do {
+                var files: [String: String] = [:]
+                for name in UpstreamLists.files {
+                    guard let url = URL(string: UpstreamLists.baseURL + name) else { continue }
+                    var request = URLRequest(url: url)
+                    request.timeoutInterval = 20
+                    request.setValue("Nimbus", forHTTPHeaderField: "User-Agent")
+                    let data = try self.urlData(request)
+                    let text = String(data: data, encoding: .utf8) ?? ""
+                    if let reason = UpstreamLists.validate(name: name, text: text) { throw NSError(domain: "Nimbus.Lists", code: 1, userInfo: [NSLocalizedDescriptionKey: reason]) }
+                    files[name] = UserListIO.normalize(text)
+                    updated.append(name)
+                }
+                let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "-")
+                let backup = listsDir.appendingPathComponent("backup-\(stamp)", isDirectory: true)
+                try self.fileManager.createDirectory(at: backup, withIntermediateDirectories: true)
+                try self.fileManager.createDirectory(at: listsDir, withIntermediateDirectories: true)
+                for (name, text) in files {
+                    let dest = listsDir.appendingPathComponent(name)
+                    if self.fileManager.fileExists(atPath: dest.path) {
+                        try self.fileManager.copyItem(at: dest, to: backup.appendingPathComponent(name))
+                    }
+                    let body = text.hasSuffix("\n") ? text : text + "\n"
+                    try body.write(to: dest, atomically: true, encoding: .utf8)
+                }
+            } catch {
+                failure = error.localizedDescription
+            }
+            DispatchQueue.main.async {
+                self.hudModel.updatingLists = false
+                if let failure {
+                    self.showError(failure)
+                } else {
+                    self.showNotice("Списки обновлены (\(updated.count))")
+                    self.applyIfRunning()
+                }
+                self.refreshHUD()
+            }
+        }
+    }
+
+    private func urlData(_ request: URLRequest) throws -> Data {
+        let session = URLSession(configuration: .ephemeral)
+        var resultData: Data?
+        var resultError: Error?
+        let lock = DispatchSemaphore(value: 0)
+        let task = session.dataTask(with: request) { data, response, error in
+            defer { lock.signal() }
+            if let error {
+                resultError = error
+                return
+            }
+            if let http = response as? HTTPURLResponse, !(200...299).contains(http.statusCode) {
+                resultError = NSError(domain: "Nimbus.Lists", code: http.statusCode, userInfo: [NSLocalizedDescriptionKey: "HTTP \(http.statusCode) для \(request.url?.lastPathComponent ?? "")"])
+                return
+            }
+            resultData = data
+        }
+        task.resume()
+        if lock.wait(timeout: .now() + 25) == .timedOut {
+            task.cancel()
+            throw NSError(domain: "Nimbus.Lists", code: 2, userInfo: [NSLocalizedDescriptionKey: "Таймаут загрузки списков"])
+        }
+        if let resultError { throw resultError }
+        guard let resultData, !resultData.isEmpty else {
+            throw NSError(domain: "Nimbus.Lists", code: 3, userInfo: [NSLocalizedDescriptionKey: "Пустой ответ"])
+        }
+        return resultData
+    }
+
+    private func openDiagnosticsPage() {
+        hudModel.page = .diagnostics
+        hud.relayout()
+        let out = dataRoot.appendingPathComponent("diagnostics.txt")
+        try? fileManager.removeItem(at: out)
+        runPrivileged(script: "diagnose.sh", arguments: [out.path, String(getuid()), String(getgid())]) { [weak self] failure in
+            guard let self else { return }
+            let text = (try? String(contentsOf: out, encoding: .utf8)) ?? ""
+            self.hudModel.diagnostics = Self.parseDiagnosticRows(text)
+            self.hudModel.diagnosticText = Self.formatDiagnosticReport(self.hudModel.diagnostics)
+            self.hudModel.page = .diagnostics
+            if failure != nil, self.hudModel.diagnostics.isEmpty {
+                // keep the error notice from runPrivileged
+            }
+            self.hud.relayout()
+        }
+    }
+
+    private static func parseDiagnosticRows(_ text: String) -> [DiagnosticItem] {
+        text.split(whereSeparator: \.isNewline).compactMap { line in
+            let parts = line.split(separator: "\t", omittingEmptySubsequences: false).map(String.init)
+            guard parts.count >= 2, ["OK", "WARN", "FAIL"].contains(parts[0]) else { return nil }
+            return DiagnosticItem(level: parts[0], name: parts[1], detail: parts.count > 2 ? parts[2] : "")
+        }
+    }
+
+    private static func formatDiagnosticReport(_ rows: [DiagnosticItem]) -> String {
+        let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
+        let header = "Nimbus \(version) · \(Date())"
+        var lines = [header, ""]
+        for row in rows {
+            let detail = row.detail.isEmpty ? "" : " — \(row.detail)"
+            lines.append("[\(row.level)] \(row.name)\(detail)")
+        }
+        return lines.joined(separator: "\n") + "\n"
+    }
+
+    private func copyDiagnosticsReport() {
+        let text = hudModel.diagnosticText
+        guard !text.isEmpty else { return }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        showNotice("Отчёт скопирован")
+    }
+
+    private func addListEntry(exclude: Bool) {
+        guard let parsed = HostParser.parse(hudModel.listInput) else {
+            showError("Не получилось распознать домен или IP")
+            return
+        }
+        let name = UserListIO.file(isIP: parsed.isIP, exclude: exclude)
+        let url = dataRoot.appendingPathComponent("lists", isDirectory: true).appendingPathComponent(name)
+        do {
+            if !fileManager.fileExists(atPath: url.path) { try "".write(to: url, atomically: true, encoding: .utf8) }
+            let current = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+            try UserListIO.add(current, entry: parsed.value).write(to: url, atomically: true, encoding: .utf8)
+            hudModel.listInput = ""
+            showNotice(exclude ? "Исключено: \(parsed.value)" : "Добавлено в обход: \(parsed.value)")
+            hudModel.userEntries = loadUserEntries()
+            applyIfRunning()
+        } catch {
+            showError(error.localizedDescription)
+        }
+    }
+
+    private func removeListEntry(_ entry: UserEntry) {
+        let url = dataRoot.appendingPathComponent("lists", isDirectory: true).appendingPathComponent(entry.file)
+        do {
+            let current = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+            try UserListIO.remove(current, entry: entry.value).write(to: url, atomically: true, encoding: .utf8)
+            hudModel.userEntries = loadUserEntries()
+            applyIfRunning()
+        } catch {
+            showError(error.localizedDescription)
+        }
+    }
+
+    private func loadUserEntries() -> [UserEntry] {
+        let dir = dataRoot.appendingPathComponent("lists", isDirectory: true)
+        var rows: [UserEntry] = []
+        for name in [UserListIO.bypassDomains, UserListIO.bypassIpset, UserListIO.excludeDomains, UserListIO.excludeIpset] {
+            let text = (try? String(contentsOf: dir.appendingPathComponent(name), encoding: .utf8)) ?? ""
+            for value in UserListIO.entries(text) {
+                rows.append(UserEntry(file: name, value: value))
+            }
+        }
+        return rows
+    }
+
+        private func showInformation(_ message: String) {
         DispatchQueue.main.async {
             self.showNotice(message)
             if let button = self.statusItem.button, !self.hud.isVisible {

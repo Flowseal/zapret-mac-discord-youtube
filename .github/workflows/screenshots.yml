@@ -8,15 +8,15 @@ on:
 
 jobs:
   macos:
-    runs-on: macos-15
+    runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
       - name: Render macOS HUD
         run: |
           SDK=$(xcrun --sdk macosx --show-sdk-path)
           xcrun swiftc -O -parse-as-library -sdk "$SDK" -target arm64-apple-macos14.0 \
-            -framework AppKit -framework SwiftUI \
-            macos/App/NimbusHUD.swift macos/Screenshots/RenderHUD.swift -o render-hud
+            -framework AppKit -framework SwiftUI -framework QuartzCore \
+            macos/App/NimbusHUD.swift macos/App/NimbusSupport.swift macos/Screenshots/RenderHUD.swift -o render-hud
           ./render-hud screens
       - uses: actions/upload-artifact@v4
         with:

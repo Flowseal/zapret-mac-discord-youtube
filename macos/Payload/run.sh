@@ -71,7 +71,7 @@ fi
 if [ -L "$DATA_ROOT" ] || [ -L "$DATA_ROOT/lists" ] || [ ! -d "$DATA_ROOT/lists" ]; then exit 1; fi
 RUNTIME_LISTS="$BASE/lists"
 /bin/mkdir -p "$RUNTIME_LISTS"
-for NAME in list-general.txt list-general-user.txt list-google.txt list-exclude.txt list-exclude-user.txt ipset-all.txt ipset-exclude.txt ipset-exclude-user.txt; do
+for NAME in list-general.txt list-general-user.txt list-google.txt list-exclude.txt list-exclude-user.txt ipset-all.txt ipset-all-user.txt ipset-exclude.txt ipset-exclude-user.txt; do
     SOURCE_LIST="$DATA_ROOT/lists/$NAME"
     if [ -L "$SOURCE_LIST" ] || [ ! -f "$SOURCE_LIST" ]; then exit 1; fi
     /usr/bin/install -m 0644 "$SOURCE_LIST" "$RUNTIME_LISTS/$NAME"
@@ -86,7 +86,12 @@ case "$IPSET_MODE" in
     *) IPSET="$BASE/ipset-none.txt" ;;
 esac
 
-/usr/bin/sed -e "s|@BASE@|$BASE|g" -e "s|@LISTS@|$RUNTIME_LISTS|g" -e "s|@IPSET@|$IPSET|g" "$BASE/strategies/$STRATEGY.conf.in" > /var/run/zapret-macos.conf
+/usr/bin/sed -e "s|@BASE@|$BASE|g" -e "s|@LISTS@|$RUNTIME_LISTS|g" -e "s|@IPSET@|$IPSET|g" "$BASE/strategies/$STRATEGY.conf.in" > /var/run/zapret-macos.conf.tmp
+/usr/bin/awk '
+    { print }
+    $0 ~ /--ipset-exclude=.*ipset-exclude-user\.txt/ { print "--ipset=\"'"$RUNTIME_LISTS"'/ipset-all-user.txt\"" }
+' /var/run/zapret-macos.conf.tmp > /var/run/zapret-macos.conf
+/bin/rm -f /var/run/zapret-macos.conf.tmp
 
 export ZAPRET_IFACE="$PHYSICAL_IFACE"
 export ZAPRET_GATEWAY_MAC="$GATEWAY_MAC"
@@ -102,6 +107,14 @@ while ! /sbin/ifconfig utun50 >/dev/null 2>&1; do
     sleep 0.1
 done
 /sbin/ifconfig utun50 10.77.0.1 10.77.0.2 netmask 255.255.255.255 up
+IPV6_ON=0
+case "$GATEWAY6_MAC" in
+    *:*:*:*:*:*)
+        if /sbin/ifconfig utun50 inet6 fd77::1 fd77::2 prefixlen 128 up; then
+            IPV6_ON=1
+        fi
+        ;;
+esac
 "$BASE/watchdog.sh" $$ "$ENGINE_PID" &
 WATCHDOG_PID=$!
 
@@ -110,10 +123,16 @@ if /sbin/pfctl -s info 2>/dev/null | /usr/bin/grep -q '^Status: Disabled'; then
     if [ -n "$TOKEN" ]; then /bin/echo "$TOKEN" >"$TOKEN_FILE"; fi
 fi
 
-printf '%s\n' \
-  'pass out quick route-to (utun50 10.77.0.2) inet proto tcp from any to any port {80,443,2053,2083,2087,2096,8443} user { >root } no state' \
-  'pass out quick route-to (utun50 10.77.0.2) inet proto udp from any to any port {443,19294:19344,50000:50100} user { >root } no state' \
-  | /sbin/pfctl -a "$ANCHOR" -f -
+{
+    printf '%s\n' \
+      'pass out quick route-to (utun50 10.77.0.2) inet proto tcp from any to any port {80,443,2053,2083,2087,2096,8443} user { >root } no state' \
+      'pass out quick route-to (utun50 10.77.0.2) inet proto udp from any to any port {443,19294:19344,50000:50100} user { >root } no state'
+    if [ "$IPV6_ON" -eq 1 ]; then
+        printf '%s\n' \
+          'pass out quick route-to (utun50 fd77::2) inet6 proto tcp from any to any port {80,443,2053,2083,2087,2096,8443} user { >root } no state' \
+          'pass out quick route-to (utun50 fd77::2) inet6 proto udp from any to any port {443,19294:19344,50000:50100} user { >root } no state'
+    fi
+} | /sbin/pfctl -a "$ANCHOR" -f -
 
 while kill -0 "$ENGINE_PID" 2>/dev/null; do
     sleep 2

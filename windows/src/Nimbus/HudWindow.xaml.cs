@@ -29,10 +29,12 @@ internal partial class HudWindow : Window
         model.PropertyChanged += (_, e) =>
         {
             if (e.PropertyName == nameof(HudModel.Running)) UpdateHeader(animate: true);
+            if (e.PropertyName is nameof(HudModel.Discord) or nameof(HudModel.YouTube) or null) UpdateServiceDots();
+            if (e.PropertyName is nameof(HudModel.TestFraction) or nameof(HudModel.ShowTestBar) or null) UpdateTestBar();
         };
         UpdateHeader(animate: false);
         Deactivated += (_, _) => HideHud();
-        SizeChanged += (_, _) => { if (IsVisible) Reposition(); };
+        SizeChanged += (_, _) => { if (IsVisible) { Reposition(); UpdateTestBar(); } };
         PreviewKeyDown += (_, e) =>
         {
             if (e.Key == System.Windows.Input.Key.Escape) HideHud();
@@ -41,8 +43,13 @@ internal partial class HudWindow : Window
 
     public bool RecentlyHidden => (DateTime.UtcNow - hiddenAt).TotalMilliseconds < 350;
 
+    private static bool ReduceMotion => !SystemParameters.ClientAreaAnimation;
+    private ServiceHealth lastDiscord = ServiceHealth.Unknown, lastYouTube = ServiceHealth.Unknown;
+    private bool hiding;
+
     public void ShowHud()
     {
+        hiding = false;
         if (!IsVisible)
         {
             Opacity = 0;
@@ -50,15 +57,47 @@ internal partial class HudWindow : Window
         }
         Reposition();
         Activate();
-        BeginAnimation(OpacityProperty, new DoubleAnimation(1, TimeSpan.FromMilliseconds(120)));
+        var duration = TimeSpan.FromMilliseconds(ReduceMotion ? 120 : 180);
+        var ease = new CubicEase { EasingMode = EasingMode.EaseOut };
+        BeginAnimation(OpacityProperty, new DoubleAnimation(1, duration) { EasingFunction = ease });
+        if (!ReduceMotion)
+        {
+            RenderTransformOrigin = new Point(0.5, 1);
+            var scale = new ScaleTransform(0.97, 0.97);
+            var slide = new TranslateTransform(0, 8);
+            RenderTransform = new TransformGroup { Children = { scale, slide } };
+            var toOne = new DoubleAnimation(1, duration) { EasingFunction = ease };
+            var toZero = new DoubleAnimation(0, duration) { EasingFunction = ease };
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, toOne);
+            scale.BeginAnimation(ScaleTransform.ScaleYProperty, toOne);
+            slide.BeginAnimation(TranslateTransform.YProperty, toZero);
+        }
+        else
+        {
+            RenderTransform = null;
+        }
+        UpdateServiceDots();
+        UpdateTestBar();
     }
 
     public void HideHud()
     {
-        if (!IsVisible) return;
+        if (!IsVisible || hiding) return;
+        hiding = true;
         hiddenAt = DateTime.UtcNow;
-        Hide();
-        if (!model.Testing) model.Page = HudPage.Main;
+        var duration = TimeSpan.FromMilliseconds(120);
+        var fade = new DoubleAnimation(0, duration) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseIn } };
+        fade.Completed += (_, _) =>
+        {
+            if (!hiding) return;
+            Hide();
+            hiding = false;
+            BeginAnimation(OpacityProperty, null);
+            Opacity = 1;
+            RenderTransform = null;
+            if (!model.Testing) model.Page = HudPage.Main;
+        };
+        BeginAnimation(OpacityProperty, fade);
     }
 
     /// <summary>Anchors the popover to the corner of the work area next to the taskbar, like a flyout.</summary>
@@ -100,9 +139,8 @@ internal partial class HudWindow : Window
         {
             HeaderCloud.Fill = Brushes.White;
             HeaderCloud.Stroke = null;
-            // SF Symbol .pulse effect
-            var pulse = new DoubleAnimation(1, 0.55, TimeSpan.FromSeconds(1.4)) { AutoReverse = true, RepeatBehavior = RepeatBehavior.Forever, EasingFunction = new SineEase() };
-            HeaderCloud.BeginAnimation(OpacityProperty, pulse);
+            HeaderCloud.BeginAnimation(OpacityProperty, null);
+            HeaderCloud.Opacity = 1;
         }
         else
         {
@@ -186,6 +224,63 @@ internal partial class HudWindow : Window
     private void Restart_Click(object sender, RoutedEventArgs e) => model.RestartService();
     private void GitHub_Click(object sender, RoutedEventArgs e) => model.OpenGitHub();
     private void InstallUpdate_Click(object sender, RoutedEventArgs e) => model.InstallUpdate();
+    private void FindAndApply_Click(object sender, RoutedEventArgs e) => model.FindAndApply();
+    private void UpdateLists_Click(object sender, RoutedEventArgs e) => model.UpdateLists();
+    private void Diagnostics_Click(object sender, RoutedEventArgs e) => model.OpenDiagnostics();
+    private void CopyDiagnostics_Click(object sender, RoutedEventArgs e) => model.CopyDiagnostics();
+    private void ToggleAutoPause_Click(object sender, RoutedEventArgs e) => model.ToggleAutoPause();
+    private void AddBypass_Click(object sender, RoutedEventArgs e) => model.AddBypass();
+    private void AddExclude_Click(object sender, RoutedEventArgs e) => model.AddExclude();
+    private void RemoveUserEntry_Click(object sender, RoutedEventArgs e)
+    {
+        if (((Button)sender).Tag is UserEntryRow row) model.RemoveUserEntry(row);
+    }
+
+    private void UpdateTestBar()
+    {
+        if (TestBarFill == null) return;
+        var host = TestBarFill.Parent as FrameworkElement;
+        var width = host?.ActualWidth ?? 0;
+        var target = Math.Max(6, width * model.TestFraction);
+        if (width <= 0)
+        {
+            TestBarFill.Width = 6;
+            return;
+        }
+        if (ReduceMotion) TestBarFill.Width = target;
+        else TestBarFill.BeginAnimation(WidthProperty, new DoubleAnimation(target, TimeSpan.FromMilliseconds(180)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } });
+    }
+
+    private void UpdateServiceDots()
+    {
+        PingRing(DiscordRing, DiscordDot, model.Discord, ref lastDiscord);
+        PingRing(YouTubeRing, YouTubeDot, model.YouTube, ref lastYouTube);
+    }
+
+    private void PingRing(Ellipse ring, Ellipse dot, ServiceHealth health, ref ServiceHealth previous)
+    {
+        if (ring == null) return;
+        var becameOk = health == ServiceHealth.Ok && previous != ServiceHealth.Ok;
+        previous = health;
+        var brush = (Brush)(dot.Fill ?? Brushes.Gray);
+        ring.Stroke = brush;
+        ring.RenderTransformOrigin = new Point(0.5, 0.5);
+        if (!becameOk || ReduceMotion)
+        {
+            ring.BeginAnimation(OpacityProperty, null);
+            ring.RenderTransform = null;
+            ring.Opacity = 0;
+            return;
+        }
+        var scale = new ScaleTransform(1, 1);
+        ring.RenderTransform = scale;
+        ring.Opacity = 0.45;
+        var grow = new DoubleAnimation(1, 2.2, TimeSpan.FromMilliseconds(420)) { EasingFunction = new CubicEase { EasingMode = EasingMode.EaseOut } };
+        var fade = new DoubleAnimation(0.45, 0, TimeSpan.FromMilliseconds(420));
+        scale.BeginAnimation(ScaleTransform.ScaleXProperty, grow);
+        scale.BeginAnimation(ScaleTransform.ScaleYProperty, grow);
+        ring.BeginAnimation(OpacityProperty, fade);
+    }
 }
 
 internal sealed class InverseVisibilityConverter : IValueConverter
