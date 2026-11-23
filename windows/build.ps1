@@ -55,7 +55,7 @@ Write-Host "Built $exe ($size MB)"
 
 $publishLite = Join-Path $Root "build/windows-lite"
 if (Test-Path $publishLite) { Remove-Item -Recurse -Force $publishLite }
-dotnet publish (Join-Path $WindowsDir "src/Nimbus/Nimbus.csproj") -c $Configuration -o $publishLite -p:SelfContained=false
+dotnet publish (Join-Path $WindowsDir "src/Nimbus/Nimbus.csproj") -c $Configuration -o $publishLite -p:SelfContained=false -p:EnableCompressionInSingleFile=false
 if ($LASTEXITCODE -ne 0) { throw "lite publish failed" }
 $lite = Join-Path $dist "Nimbus-Windows-x64-lite.exe"
 Copy-Item (Join-Path $publishLite "Nimbus.exe") $lite -Force

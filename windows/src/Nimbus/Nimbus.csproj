@@ -23,7 +23,9 @@
     <SelfContained Condition="'$(SelfContained)' == ''">true</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
-    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <!-- Compression is only valid for self-contained single-file bundles (NETSDK1176). -->
+    <EnableCompressionInSingleFile Condition="'$(SelfContained)' != 'false'">true</EnableCompressionInSingleFile>
+    <EnableCompressionInSingleFile Condition="'$(SelfContained)' == 'false'">false</EnableCompressionInSingleFile>
     <DebugType>embedded</DebugType>
     <SatelliteResourceLanguages>ru;en</SatelliteResourceLanguages>
     <InvariantGlobalization>false</InvariantGlobalization>
