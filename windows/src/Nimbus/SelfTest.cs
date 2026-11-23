@@ -52,9 +52,29 @@ internal static class SelfTest
                 }
             }
 
+            var defaultTemplate = Payload.ReadText($"payload/strategies/{StrategyCatalog.DefaultId}.conf.in");
+            var loaded = EngineArguments.IpsetPath(IpsetModes.Loaded, Paths.Base, Paths.RuntimeLists);
+            foreach (var game in new[] { GameFilterModes.Games, GameFilterModes.Wide })
+            {
+                var args = EngineArguments.Build(defaultTemplate, Paths.Base, Paths.RuntimeLists, loaded, gameFilterMode: game);
+                var psi = new ProcessStartInfo(Paths.Winws) { UseShellExecute = false, CreateNoWindow = true, RedirectStandardOutput = true, RedirectStandardError = true, WorkingDirectory = Paths.BinDir };
+                psi.ArgumentList.Add("--dry-run");
+                foreach (var a in args) psi.ArgumentList.Add(a);
+                using var p = Process.Start(psi)!;
+                var stdout = p.StandardOutput.ReadToEndAsync();
+                var stderr = p.StandardError.ReadToEndAsync();
+                if (!p.WaitForExit(20000)) { p.Kill(); }
+                var output = (stdout.Result + stderr.Result).Trim();
+                var last = output.Length == 0 ? "" : output.Split('\n')[^1].Trim();
+                var ok = p.HasExited && p.ExitCode == 0;
+                if (!ok) failures++;
+                Line($"{(ok ? "ok  " : "FAIL")} dry-run {StrategyCatalog.DefaultId} game={game}: {last}");
+                if (!ok) Line(output);
+            }
+
             Line("");
             Line("engine start (general-simple-fake, none) …");
-            Engine.Start(StrategyCatalog.DefaultId, IpsetModes.None);
+            Engine.Start(StrategyCatalog.DefaultId, IpsetModes.None, gameFilterMode: GameFilterModes.Off);
             Thread.Sleep(2000);
             var running = Engine.IsRunning;
             Line(running ? "ok   winws is running" : "FAIL winws is not running");

@@ -26,7 +26,7 @@ internal sealed class HudModel : INotifyPropertyChanged
     public event PropertyChangedEventHandler? PropertyChanged;
 
     private bool running, busy, testing, cancellingTest, updating, loginEnabled, canInstallUpdate, testEnabled = true, applyBestEnabled, noticeError;
-    private string strategyName = "—", selectedStrategyId = "", ipsetMode = "none", versionTitle = "Версия", testTitle = "Тест стратегий";
+    private string strategyName = "—", selectedStrategyId = "", ipsetMode = "none", gameFilterMode = "off", versionTitle = "Версия", testTitle = "Тест стратегий";
     private string testProgress = "", testBest = "", logs = "", editorName = "", editorTitle = "", editorText = "", notice = "";
     private HudPage page = HudPage.Main;
     private ServiceHealth discord = ServiceHealth.Unknown, youtube = ServiceHealth.Unknown;
@@ -44,6 +44,7 @@ internal sealed class HudModel : INotifyPropertyChanged
     public string StrategyName { get => strategyName; set => Set(ref strategyName, value); }
     public string SelectedStrategyId { get => selectedStrategyId; set => Set(ref selectedStrategyId, value); }
     public string IpsetMode { get => ipsetMode; set { if (Set(ref ipsetMode, value)) Raise(nameof(IpsetTitle)); } }
+    public string GameFilterMode { get => gameFilterMode; set { if (Set(ref gameFilterMode, value)) Raise(nameof(GameFilterTitle)); } }
     public bool LoginEnabled { get => loginEnabled; set => Set(ref loginEnabled, value); }
     public string VersionTitle { get => versionTitle; set { if (Set(ref versionTitle, value)) Raise(nameof(UpdateRowTitle), nameof(FooterVersion)); } }
     public bool CanInstallUpdate { get => canInstallUpdate; set { if (Set(ref canInstallUpdate, value)) Raise(nameof(ShowUpdateRow), nameof(UpdateRowEnabled), nameof(FooterVersion)); } }
@@ -73,6 +74,7 @@ internal sealed class HudModel : INotifyPropertyChanged
     public bool NoticeError { get => noticeError; set { if (Set(ref noticeError, value)) Raise(nameof(NoticeGlyph)); } }
 
     public string IpsetTitle => IpsetModes.Title(ipsetMode);
+    public string GameFilterTitle => GameFilterModes.Title(gameFilterMode);
     public string StatusTitle => running ? "Включён" : "Выключен";
     public bool HasTestPanel => testing || testRows.Count > 0 || testBest.Length > 0;
     public bool HasTestProgress => testProgress.Length > 0;
@@ -101,6 +103,7 @@ internal sealed class HudModel : INotifyPropertyChanged
     public Action ToggleService = () => { };
     public Action<string> SelectStrategy = _ => { };
     public Action<string> SelectIpset = _ => { };
+    public Action<string> SelectGameFilter = _ => { };
     public Action ToggleLogin = () => { };
     public Action TestStrategies = () => { };
     public Action ApplyBest = () => { };

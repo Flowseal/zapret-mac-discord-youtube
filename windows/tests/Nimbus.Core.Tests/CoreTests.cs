@@ -85,6 +85,58 @@ public class StrategyTests
         Assert.Equal("Стандартный", IpsetModes.Title("loaded"));
         Assert.Equal("Все", IpsetModes.Title("any"));
     }
+
+    [Fact]
+    public void GameFilterTitlesAndPorts()
+    {
+        Assert.Equal("Выкл", GameFilterModes.Title(null));
+        Assert.Equal("Выкл", GameFilterModes.Title("garbage"));
+        Assert.Equal("Игры", GameFilterModes.Title(GameFilterModes.Games));
+        Assert.Equal("Широкий", GameFilterModes.Title(GameFilterModes.Wide));
+        Assert.False(GameFilterModes.IsOn("off"));
+        Assert.True(GameFilterModes.IsOn("games"));
+        Assert.Equal((GameFilterModes.GamesTcp, GameFilterModes.GamesUdp), GameFilterModes.Ports(GameFilterModes.Games));
+        Assert.Equal((GameFilterModes.WidePorts, GameFilterModes.WidePorts), GameFilterModes.Ports(GameFilterModes.Wide));
+        Assert.Null(GameFilterModes.Ports(GameFilterModes.Off));
+    }
+
+    [Theory]
+    [InlineData("off", "80,443,2053,2083,2087,2096,8443", "443,19294-19344,50000-50100", false)]
+    [InlineData("games", "80,443,2053,2083,2087,2096,8443,3074,3075,1119,3724", "443,19294-19344,50000-50100,3074,3075,3478-3480,3659,4379-4380,27000-27050", true)]
+    [InlineData("wide", "80,443,2053,2083,2087,2096,8443,1024-65535", "443,19294-19344,50000-50100,1024-65535", true)]
+    public void GameFilterModesChangeWinDivertAndProfiles(string mode, string tcp, string udp, bool active)
+    {
+        var args = EngineArguments.Build(
+            "--dpi-desync=fake\n--new\n--filter-tcp=443\n--ipset=\"@IPSET@\"\n",
+            @"C:\PD\Nimbus", @"C:\PD\Nimbus\lists", @"C:\PD\Nimbus\lists\ipset-all.txt",
+            gameFilterMode: mode);
+        Assert.Equal("--wf-tcp=" + tcp, args[0]);
+        Assert.Equal("--wf-udp=" + udp, args[1]);
+        Assert.DoesNotContain(args, a => a == "--filter-tcp=12" || a == "--filter-udp=12");
+        if (!active)
+        {
+            Assert.DoesNotContain(args, a => a.Contains("dpi-desync-any-protocol"));
+            Assert.DoesNotContain(args, a => a.Contains("ACTIVE_GAME_UDP.bin"));
+            return;
+        }
+        Assert.Contains("--dpi-desync-any-protocol=1", args);
+        Assert.Contains("--dpi-desync-cutoff=n4", args);
+        Assert.Contains("--dpi-desync-cutoff=n3", args);
+        Assert.Contains("--dpi-desync-repeats=6", args);
+        Assert.Contains("--dpi-desync-repeats=12", args);
+        Assert.Contains("--dpi-desync-fooling=ts", args);
+        Assert.Contains(@"--dpi-desync-fake-unknown-udp=C:\PD\Nimbus\bin\ACTIVE_GAME_UDP.bin", args);
+        Assert.Contains(@"--ipset=C:\PD\Nimbus\lists\ipset-all.txt", args);
+        Assert.Contains(@"--ipset-exclude=C:\PD\Nimbus\lists\ipset-exclude-user.txt", args);
+        Assert.Contains("--filter-tcp=" + (mode == "wide" ? GameFilterModes.WidePorts : GameFilterModes.GamesTcp), args);
+        Assert.Contains("--filter-udp=" + (mode == "wide" ? GameFilterModes.WidePorts : GameFilterModes.GamesUdp), args);
+        foreach (var a in args)
+        {
+            Assert.StartsWith("--", a);
+            Assert.DoesNotContain("@", a);
+            Assert.DoesNotContain("\"", a);
+        }
+    }
 }
 
 public class VersionTests

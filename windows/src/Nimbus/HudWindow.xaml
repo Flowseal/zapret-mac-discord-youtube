@@ -347,6 +347,16 @@
                                     <TextBlock Text="Пресет" />
                                 </DockPanel>
                             </Button>
+                            <Border Style="{StaticResource Hairline}" />
+                            <Button x:Name="GameFilterRow" Style="{StaticResource Row}" Click="GameFilterRow_Click" IsEnabled="{Binding NotBusy}"
+                                    ToolTip="Расширяет обход на игровые порты (CoD, Steam, Battle.net). Если пресет «Нет», он переключится на «Стандартный».">
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Left" Style="{StaticResource Glyph}" Text="&#xE7FC;" Margin="0,0,10,0" />
+                                    <TextBlock DockPanel.Dock="Right" Style="{StaticResource Chevron}" />
+                                    <TextBlock DockPanel.Dock="Right" Text="{Binding GameFilterTitle}" Foreground="{DynamicResource SecondaryBrush}" />
+                                    <TextBlock Text="Игровой фильтр" />
+                                </DockPanel>
+                            </Button>
                         </StackPanel>
                     </Border>
 

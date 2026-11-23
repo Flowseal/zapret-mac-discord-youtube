@@ -51,3 +51,37 @@ public static class IpsetModes
         _ => "Нет",
     };
 }
+
+public static class GameFilterModes
+{
+    public const string Off = "off";
+    public const string Games = "games";
+    public const string Wide = "wide";
+
+    public const string GamesTcp = "3074,3075,1119,3724";
+    public const string GamesUdp = "3074,3075,3478-3480,3659,4379-4380,27000-27050";
+    public const string WidePorts = "1024-65535";
+
+    public static string Normalize(string? mode) => mode switch
+    {
+        Games => Games,
+        Wide => Wide,
+        _ => Off,
+    };
+
+    public static bool IsOn(string? mode) => Normalize(mode) is Games or Wide;
+
+    public static string Title(string? mode) => Normalize(mode) switch
+    {
+        Games => "Игры",
+        Wide => "Широкий",
+        _ => "Выкл",
+    };
+
+    public static (string Tcp, string Udp)? Ports(string? mode) => Normalize(mode) switch
+    {
+        Games => (GamesTcp, GamesUdp),
+        Wide => (WidePorts, WidePorts),
+        _ => null,
+    };
+}

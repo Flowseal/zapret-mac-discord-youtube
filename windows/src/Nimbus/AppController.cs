@@ -64,7 +64,7 @@ internal sealed class AppController
         // Resume after reboot/update, like the Mac LaunchDaemon that keeps running without the app
         if (State.Read(Paths.EngineEnabled) == "1" && !Engine.IsRunning)
         {
-            RunEngineOperation(() => Engine.Start(SelectedStrategy, SelectedIpset));
+            RunEngineOperation(() => Engine.Start(SelectedStrategy, SelectedIpset, gameFilterMode: SelectedGameFilter));
         }
         if (showOnLaunch) hud.ShowHud();
     }
@@ -80,6 +80,7 @@ internal sealed class AppController
         model.ToggleService = ToggleService;
         model.SelectStrategy = SelectStrategy;
         model.SelectIpset = SelectIpset;
+        model.SelectGameFilter = SelectGameFilter;
         model.ToggleLogin = ToggleLogin;
         model.TestStrategies = TestStrategies;
         model.ApplyBest = () =>
@@ -96,7 +97,7 @@ internal sealed class AppController
             try { Clipboard.SetText(model.Logs); ShowNotice("Логи скопированы"); }
             catch (Exception ex) { ShowError(ex.Message); }
         };
-        model.RestartService = () => { if (Engine.IsRunning) RunEngineOperation(() => Engine.Start(SelectedStrategy, SelectedIpset)); };
+        model.RestartService = () => { if (Engine.IsRunning) RunEngineOperation(() => Engine.Start(SelectedStrategy, SelectedIpset, gameFilterMode: SelectedGameFilter)); };
         model.OpenGitHub = () => OpenShell(Updater.RepoUrl);
         model.InstallUpdate = InstallUpdate;
         model.Quit = () => Application.Current.Shutdown();
@@ -114,12 +115,15 @@ internal sealed class AppController
 
     private string SelectedIpset => IpsetModes.Normalize(State.Read(Paths.IpsetMode));
 
+    private string SelectedGameFilter => GameFilterModes.Normalize(State.Read(Paths.GameFilterMode));
+
     private static void InitializeUserData()
     {
         Directory.CreateDirectory(Paths.UserLists);
         Payload.Extract("payload/default-lists/", Paths.UserLists, overwrite: false);
         if (!File.Exists(Paths.SelectedStrategy)) State.Write(Paths.SelectedStrategy, StrategyCatalog.DefaultId);
         if (!File.Exists(Paths.IpsetMode)) State.Write(Paths.IpsetMode, IpsetModes.None);
+        if (!File.Exists(Paths.GameFilterMode)) State.Write(Paths.GameFilterMode, GameFilterModes.Off);
     }
 
     private void ToggleHud()
@@ -140,6 +144,7 @@ internal sealed class AppController
         model.SelectedStrategyId = selected;
         model.StrategyName = strategies.FirstOrDefault(s => s.Id == selected)?.Name ?? selected;
         model.IpsetMode = SelectedIpset;
+        model.GameFilterMode = SelectedGameFilter;
         if (testing || hud.IsVisible) ProbeServices(force: false);
         model.ApplyBestEnabled = !testing && !busy && model.TestRows.Any(r => r.IsBest);
         if (testing)
@@ -216,7 +221,7 @@ internal sealed class AppController
         {
             RunEngineOperation(() =>
             {
-                Engine.Start(SelectedStrategy, SelectedIpset);
+                Engine.Start(SelectedStrategy, SelectedIpset, gameFilterMode: SelectedGameFilter);
                 State.Write(Paths.EngineEnabled, "1");
             });
         }
@@ -252,9 +257,35 @@ internal sealed class AppController
         }
     }
 
+    private void SelectGameFilter(string mode)
+    {
+        if (testing) return;
+        try
+        {
+            mode = GameFilterModes.Normalize(mode);
+            var switchedPreset = false;
+            if (GameFilterModes.IsOn(mode) && SelectedIpset == IpsetModes.None)
+            {
+                State.Write(Paths.IpsetMode, IpsetModes.Loaded);
+                switchedPreset = true;
+            }
+            State.Write(Paths.GameFilterMode, mode);
+            Refresh();
+            ApplyIfRunning();
+            if (switchedPreset)
+            {
+                ShowNotice("Пресет переключён на «Стандартный»: без списка IP игровой фильтр не сработает.");
+            }
+        }
+        catch (Exception ex)
+        {
+            ShowError(ex.Message);
+        }
+    }
+
     private void ApplyIfRunning()
     {
-        if (Engine.IsRunning) RunEngineOperation(() => Engine.Start(SelectedStrategy, SelectedIpset));
+        if (Engine.IsRunning) RunEngineOperation(() => Engine.Start(SelectedStrategy, SelectedIpset, gameFilterMode: SelectedGameFilter));
     }
 
     private void ToggleLogin()
@@ -336,7 +367,7 @@ internal sealed class AppController
         string summary;
         try
         {
-            summary = await tester.RunAsync(strategies, SelectedStrategy, SelectedIpset, Engine.IsRunning, testCancel.Token);
+            summary = await tester.RunAsync(strategies, SelectedStrategy, SelectedIpset, SelectedGameFilter, Engine.IsRunning, testCancel.Token);
         }
         catch (Exception ex)
         {
@@ -449,7 +480,7 @@ internal sealed class AppController
                 }
                 catch
                 {
-                    if (wasRunning) Engine.Start(SelectedStrategy, SelectedIpset);
+                    if (wasRunning) Engine.Start(SelectedStrategy, SelectedIpset, gameFilterMode: SelectedGameFilter);
                     throw;
                 }
             });

@@ -14,7 +14,7 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\nimbus.ico</ApplicationIcon>
     <!-- Keep in sync with macos/Info.plist CFBundleShortVersionString (CI checks this). -->
-    <Version>1.3.0</Version>
+    <Version>1.4.0</Version>
     <Product>Nimbus</Product>
     <Company>Nimbus</Company>
     <Description>Nimbus — zapret для Windows</Description>
@@ -44,6 +44,7 @@
     <EmbeddedResource Include="$(PayloadDir)ipset-any.txt" LogicalName="payload/ipset-any.txt" />
     <EmbeddedResource Include="$(PayloadDir)strategies\*.conf.in" LogicalName="payload/strategies/%(Filename)%(Extension)" />
     <EmbeddedResource Include="$(PayloadDir)bin\*.bin" LogicalName="payload/bin/%(Filename)%(Extension)" />
+    <EmbeddedResource Include="$(MSBuildThisFileDirectory)..\..\payload\ACTIVE_GAME_UDP.bin" LogicalName="payload/bin/ACTIVE_GAME_UDP.bin" />
     <EmbeddedResource Include="$(PayloadDir)default-lists\*.txt" LogicalName="payload/default-lists/%(Filename)%(Extension)" />
     <EmbeddedResource Include="$(EngineDir)*.exe;$(EngineDir)*.dll;$(EngineDir)*.sys" LogicalName="engine/%(Filename)%(Extension)" />
     <EmbeddedResource Include="$(EngineDir)VERSION" LogicalName="engine/VERSION" Condition="Exists('$(EngineDir)VERSION')" />

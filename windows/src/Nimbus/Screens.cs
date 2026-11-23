@@ -29,6 +29,7 @@ internal static class Screens
                 m.Running = true;
                 m.LoginEnabled = true;
                 m.IpsetMode = IpsetModes.Loaded;
+                m.GameFilterMode = GameFilterModes.Games;
                 m.Discord = ServiceHealth.Ok;
                 m.YouTube = ServiceHealth.Ok;
             });

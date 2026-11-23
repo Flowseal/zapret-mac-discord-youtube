@@ -48,9 +48,10 @@ internal static class Engine
     }
 
     /// <summary>Starts winws with the given strategy; throws with the engine log tail when it does not stay up.</summary>
-    public static void Start(string strategyId, string ipsetMode, bool prepare = true)
+    public static void Start(string strategyId, string ipsetMode, bool prepare = true, string? gameFilterMode = null)
     {
         if (!StrategyCatalog.IsValidId(strategyId)) strategyId = StrategyCatalog.DefaultId;
+        var gameFilter = GameFilterModes.Normalize(gameFilterMode);
         Stop();
         if (prepare) PrepareFiles();
         CopyLists();
@@ -67,11 +68,11 @@ internal static class Engine
         }
 
         var ipset = EngineArguments.IpsetPath(ipsetMode, Paths.Base, Paths.RuntimeLists);
-        var args = EngineArguments.Build(template, Paths.Base, Paths.RuntimeLists, ipset);
+        var args = EngineArguments.Build(template, Paths.Base, Paths.RuntimeLists, ipset, gameFilterMode: gameFilter);
         File.WriteAllLines(Paths.EngineArgs, args, new UTF8Encoding(false));
 
         Log.TrimIfLarge(Paths.EngineLog);
-        Log.Append(Paths.EngineLog, $"— запуск: {strategyId}, пресет {IpsetModes.Normalize(ipsetMode)} —");
+        Log.Append(Paths.EngineLog, $"— запуск: {strategyId}, пресет {IpsetModes.Normalize(ipsetMode)}, игровой фильтр {GameFilterModes.Title(gameFilter)} —");
 
         var host = new ProcessStartInfo(Paths.ExecutablePath)
         {

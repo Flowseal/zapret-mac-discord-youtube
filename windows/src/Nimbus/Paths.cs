@@ -27,6 +27,7 @@ internal static class Paths
 
     public static string SelectedStrategy => Path.Combine(DataRoot, "selected-strategy");
     public static string IpsetMode => Path.Combine(DataRoot, "ipset-mode");
+    public static string GameFilterMode => Path.Combine(DataRoot, "game-filter-mode");
     public static string EngineEnabled => Path.Combine(DataRoot, "engine-enabled");
     public static string TestReport => Path.Combine(DataRoot, "strategy-test.txt");
     public static string UpdateError => Path.Combine(DataRoot, "update-error");
