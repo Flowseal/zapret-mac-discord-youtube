@@ -3,45 +3,34 @@ namespace Nimbus.Core;
 /// <summary>
 /// Turns a Mac strategy template (macos/Payload/strategies/*.conf.in, nfqws syntax) into a winws.exe argument list.
 /// winws shares the nfqws option parser; the only addition is the WinDivert filter (--wf-tcp/--wf-udp),
-/// which mirrors the ports the Mac app redirects through pf.
+/// which mirrors the ports the Mac app redirects through pf. On Windows, an optional Game Filter can
+/// widen those ports and append two any-protocol desync profiles for game traffic.
 /// </summary>
 public static class EngineArguments
 {
     public const string WinDivertTcp = "80,443,2053,2083,2087,2096,8443";
     public const string WinDivertUdp = "443,19294-19344,50000-50100";
 
-    public static List<string> Build(string template, string baseDir, string listsDir, string ipsetPath, char separator = '\\')
+    public static List<string> Build(string template, string baseDir, string listsDir, string ipsetPath, char separator = '\\', string? gameFilterMode = null)
     {
+        var ports = GameFilterModes.Ports(gameFilterMode);
         var args = new List<string>
         {
-            "--wf-tcp=" + WinDivertTcp,
-            "--wf-udp=" + WinDivertUdp,
+            "--wf-tcp=" + WinDivertTcp + (ports == null ? "" : "," + ports.Value.Tcp),
+            "--wf-udp=" + WinDivertUdp + (ports == null ? "" : "," + ports.Value.Udp),
         };
         foreach (var raw in template.Split('\n'))
         {
-            var line = raw.Trim();
-            if (line.Length == 0 || line.StartsWith('#')) continue;
-            var hasPath = line.Contains("@BASE@") || line.Contains("@LISTS@") || line.Contains("@IPSET@");
-            line = line
-                .Replace("@BASE@", TrimSeparators(baseDir))
-                .Replace("@LISTS@", TrimSeparators(listsDir))
-                .Replace("@IPSET@", ipsetPath);
-            var eq = line.IndexOf('=');
-            if (eq > 0)
+            var line = Translate(raw, baseDir, listsDir, ipsetPath, separator);
+            if (line != null) args.Add(line);
+        }
+        if (ports is { } game)
+        {
+            foreach (var raw in GameProfiles(game.Tcp, game.Udp))
             {
-                var key = line[..eq];
-                var value = line[(eq + 1)..];
-                if (value.Length >= 2 && value[0] == '"' && value[^1] == '"')
-                {
-                    value = value[1..^1];
-                }
-                if (hasPath)
-                {
-                    value = value.Replace('/', separator).Replace('\\', separator);
-                }
-                line = key + "=" + value;
+                var line = Translate(raw, baseDir, listsDir, ipsetPath, separator);
+                if (line != null) args.Add(line);
             }
-            args.Add(line);
         }
         return args;
     }
@@ -52,6 +41,60 @@ public static class EngineArguments
         IpsetModes.Any => TrimSeparators(baseDir) + separator + "ipset-any.txt",
         _ => TrimSeparators(baseDir) + separator + "ipset-none.txt",
     };
+
+    private static IEnumerable<string> GameProfiles(string tcp, string udp)
+    {
+        yield return "--new";
+        yield return "--filter-tcp=" + tcp;
+        yield return "--ipset=\"@IPSET@\"";
+        yield return "--ipset-exclude=\"@LISTS@/ipset-exclude.txt\"";
+        yield return "--ipset-exclude=\"@LISTS@/ipset-exclude-user.txt\"";
+        yield return "--dpi-desync=fake";
+        yield return "--dpi-desync-repeats=6";
+        yield return "--dpi-desync-any-protocol=1";
+        yield return "--dpi-desync-cutoff=n4";
+        yield return "--dpi-desync-fooling=ts";
+        yield return "--dpi-desync-fake-tls=\"@BASE@/bin/tls_clienthello_www_google_com.bin\"";
+        yield return "--dpi-desync-fake-http=\"@BASE@/bin/tls_clienthello_max_ru.bin\"";
+        yield return "--dpi-desync-fake-unknown=\"@BASE@/bin/stun2.bin\"";
+        yield return "--new";
+        yield return "--filter-udp=" + udp;
+        yield return "--ipset=\"@IPSET@\"";
+        yield return "--ipset-exclude=\"@LISTS@/ipset-exclude.txt\"";
+        yield return "--ipset-exclude=\"@LISTS@/ipset-exclude-user.txt\"";
+        yield return "--dpi-desync=fake";
+        yield return "--dpi-desync-repeats=12";
+        yield return "--dpi-desync-any-protocol=1";
+        yield return "--dpi-desync-fake-unknown-udp=\"@BASE@/bin/ACTIVE_GAME_UDP.bin\"";
+        yield return "--dpi-desync-cutoff=n3";
+    }
+
+    private static string? Translate(string raw, string baseDir, string listsDir, string ipsetPath, char separator)
+    {
+        var line = raw.Trim();
+        if (line.Length == 0 || line.StartsWith('#')) return null;
+        var hasPath = line.Contains("@BASE@") || line.Contains("@LISTS@") || line.Contains("@IPSET@");
+        line = line
+            .Replace("@BASE@", TrimSeparators(baseDir))
+            .Replace("@LISTS@", TrimSeparators(listsDir))
+            .Replace("@IPSET@", ipsetPath);
+        var eq = line.IndexOf('=');
+        if (eq > 0)
+        {
+            var key = line[..eq];
+            var value = line[(eq + 1)..];
+            if (value.Length >= 2 && value[0] == '"' && value[^1] == '"')
+            {
+                value = value[1..^1];
+            }
+            if (hasPath)
+            {
+                value = value.Replace('/', separator).Replace('\\', separator);
+            }
+            line = key + "=" + value;
+        }
+        return line;
+    }
 
     private static string TrimSeparators(string path) => path.TrimEnd('\\', '/');
 }

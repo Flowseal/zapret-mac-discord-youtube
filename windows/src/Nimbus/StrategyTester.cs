@@ -20,7 +20,7 @@ internal sealed class StrategyTester
     public event Action<string>? Progress;
     public event Action<StrategyResult>? Result;
 
-    public async Task<string> RunAsync(IReadOnlyList<Strategy> strategies, string originalStrategy, string originalIpset, bool originalRunning, CancellationToken cancel)
+    public async Task<string> RunAsync(IReadOnlyList<Strategy> strategies, string originalStrategy, string originalIpset, string originalGameFilter, bool originalRunning, CancellationToken cancel)
     {
         var report = new StringBuilder();
         var best = new BestTracker();
@@ -58,7 +58,7 @@ internal sealed class StrategyTester
                 Progress?.Invoke($"Стратегия {number}/{strategies.Count}: {strategy.Name}");
                 try
                 {
-                    await Task.Run(() => Engine.Start(strategy.Id, IpsetModes.Any, prepare: false), cancel);
+                    await Task.Run(() => Engine.Start(strategy.Id, IpsetModes.Any, prepare: false, gameFilterMode: GameFilterModes.Off), cancel);
                 }
                 catch (Exception) when (!cancel.IsCancellationRequested)
                 {
@@ -104,7 +104,7 @@ internal sealed class StrategyTester
             {
                 try
                 {
-                    if (originalRunning) Engine.Start(originalStrategy, originalIpset);
+                    if (originalRunning) Engine.Start(originalStrategy, originalIpset, gameFilterMode: originalGameFilter);
                     else Engine.Stop();
                 }
                 catch (Exception ex)

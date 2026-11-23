@@ -153,6 +153,18 @@ internal partial class HudWindow : Window
         ShowMenu((Button)sender, menu);
     }
 
+    private void GameFilterRow_Click(object sender, RoutedEventArgs e)
+    {
+        var menu = new ContextMenu();
+        foreach (var (id, title) in new[] { (GameFilterModes.Off, "Выкл"), (GameFilterModes.Games, "Игры"), (GameFilterModes.Wide, "Широкий") })
+        {
+            var item = new MenuItem { Header = title, IsChecked = model.GameFilterMode == id };
+            item.Click += (_, _) => model.SelectGameFilter(id);
+            menu.Items.Add(item);
+        }
+        ShowMenu((Button)sender, menu);
+    }
+
     private void ToggleService_Click(object sender, RoutedEventArgs e) => model.ToggleService();
     private void ToggleLogin_Click(object sender, RoutedEventArgs e) => model.ToggleLogin();
     private void More_Click(object sender, RoutedEventArgs e) => model.Page = HudPage.More;
