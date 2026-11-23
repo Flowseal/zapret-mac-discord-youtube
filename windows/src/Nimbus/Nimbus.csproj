@@ -14,13 +14,13 @@
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\nimbus.ico</ApplicationIcon>
     <!-- Keep in sync with macos/Info.plist CFBundleShortVersionString (CI checks this). -->
-    <Version>1.4.0</Version>
+    <Version>1.5.0</Version>
     <Product>Nimbus</Product>
     <Company>Nimbus</Company>
     <Description>Nimbus — zapret для Windows</Description>
     <Copyright>bol-van, Flowseal, Nimbus</Copyright>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
-    <SelfContained>true</SelfContained>
+    <SelfContained Condition="'$(SelfContained)' == ''">true</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>

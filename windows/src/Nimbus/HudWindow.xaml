@@ -287,7 +287,8 @@
 
                 <!-- ===== main page ===== -->
                 <StackPanel Visibility="{Binding IsMain, Converter={StaticResource Vis}}">
-                    <Grid Margin="0,0,0,10">
+                    <StackPanel Margin="0,0,0,10">
+                    <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" />
                             <ColumnDefinition Width="*" />
@@ -303,6 +304,13 @@
                         </StackPanel>
                         <Button Grid.Column="2" Style="{StaticResource Switch}" Tag="{Binding Running}" IsEnabled="{Binding NotBusy}" Click="ToggleService_Click" ToolTip="Включить / выключить" />
                     </Grid>
+                    <Border Margin="0,8,0,0" CornerRadius="8" Padding="8,6" Background="{DynamicResource AccentSoftBrush}" ToolTip="{Binding VpnWarning}" Visibility="{Binding HasVpnWarning, Converter={StaticResource Vis}}">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="&#xE7BA;" FontFamily="{StaticResource IconFont}" FontSize="10" Foreground="#C8871F" Margin="0,1,6,0" />
+                            <TextBlock Text="VPN активен" FontSize="11.5" FontWeight="SemiBold" Foreground="#C8871F" />
+                        </StackPanel>
+                    </Border>
+                    </StackPanel>
 
                     <Border Style="{StaticResource Group}">
                         <StackPanel>
@@ -314,13 +322,19 @@
                                     <ColumnDefinition Width="*" />
                                 </Grid.ColumnDefinitions>
                                 <StackPanel Orientation="Horizontal" Margin="2,0">
-                                    <Ellipse Width="7" Height="7" Fill="{Binding Discord, Converter={StaticResource HealthBrush}}" Margin="0,1,7,0" />
-                                    <TextBlock Text="Discord" />
+                                    <Grid Width="14" Height="14" Margin="0,0,5,0">
+                                        <Ellipse x:Name="DiscordRing" Width="7" Height="7" StrokeThickness="1" IsHitTestVisible="False" />
+                                        <Ellipse x:Name="DiscordDot" Width="7" Height="7" Fill="{Binding Discord, Converter={StaticResource HealthBrush}}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    </Grid>
+                                    <TextBlock Text="Discord" VerticalAlignment="Center" />
                                 </StackPanel>
                                 <Border Grid.Column="1" Height="16" Background="{DynamicResource HairlineBrush}" />
                                 <StackPanel Grid.Column="2" Orientation="Horizontal" Margin="10,0,2,0">
-                                    <Ellipse Width="7" Height="7" Fill="{Binding YouTube, Converter={StaticResource HealthBrush}}" Margin="0,1,7,0" />
-                                    <TextBlock Text="YouTube" />
+                                    <Grid Width="14" Height="14" Margin="0,0,5,0">
+                                        <Ellipse x:Name="YouTubeRing" Width="7" Height="7" StrokeThickness="1" IsHitTestVisible="False" />
+                                        <Ellipse x:Name="YouTubeDot" Width="7" Height="7" Fill="{Binding YouTube, Converter={StaticResource HealthBrush}}" HorizontalAlignment="Center" VerticalAlignment="Center" />
+                                    </Grid>
+                                    <TextBlock Text="YouTube" VerticalAlignment="Center" />
                                 </StackPanel>
                             </Grid>
                             <Border Style="{StaticResource Hairline}" />
@@ -391,7 +405,11 @@
                     <!-- test results -->
                     <Border CornerRadius="12" Padding="10" Margin="0,0,0,10" Background="{DynamicResource GroupBrush}" Visibility="{Binding HasTestPanel, Converter={StaticResource Vis}}">
                         <StackPanel>
-                            <TextBlock Text="{Binding TestProgress}" Style="{StaticResource Caption}" Margin="0,0,0,6" TextWrapping="Wrap" Visibility="{Binding HasTestProgress, Converter={StaticResource Vis}}" />
+                            <TextBlock Text="{Binding TestProgress}" Style="{StaticResource Caption}" FontFamily="Segoe UI Variable Display, Segoe UI" Margin="0,0,0,6" TextWrapping="Wrap" Visibility="{Binding HasTestProgress, Converter={StaticResource Vis}}" />
+                            <Grid Height="3" Margin="0,0,0,8" Visibility="{Binding ShowTestBar, Converter={StaticResource Vis}}">
+                                <Border CornerRadius="2" Background="{DynamicResource HairlineBrush}" />
+                                <Border x:Name="TestBarFill" CornerRadius="2" Background="{DynamicResource AccentBrush}" HorizontalAlignment="Left" Width="6" />
+                            </Grid>
                             <ScrollViewer MaxHeight="150" VerticalScrollBarVisibility="Auto" Visibility="{Binding HasTestRows, Converter={StaticResource Vis}}">
                                 <ItemsControl ItemsSource="{Binding TestRows}">
                                     <ItemsControl.ItemTemplate>
@@ -443,7 +461,28 @@
 
                     <Border Style="{StaticResource Group}">
                         <StackPanel>
-                            <Button Style="{StaticResource Row}" Click="TestStrategies_Click" IsEnabled="{Binding TestEnabled}">
+                            <Button Style="{StaticResource Row}" Click="FindAndApply_Click" IsEnabled="{Binding FindEnabled}">
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Left" Style="{StaticResource Glyph}" Text="&#xE945;" Margin="0,0,10,0" />
+                                    <TextBlock DockPanel.Dock="Right" Style="{StaticResource Chevron}" />
+                                    <TextBlock Text="{Binding FindTitle}">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding TestIsSmart}" Value="True">
+                                                        <Setter Property="Foreground" Value="{DynamicResource RedBrush}" />
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding Testing}" Value="False">
+                                                        <Setter Property="Foreground" Value="{DynamicResource FgBrush}" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </DockPanel>
+                            </Button>
+                            <Border Style="{StaticResource Hairline}" />
+                            <Button Style="{StaticResource Row}" Click="TestStrategies_Click" IsEnabled="{Binding FullTestEnabled}">
                                 <DockPanel>
                                     <TextBlock DockPanel.Dock="Left" Style="{StaticResource Glyph}" Text="&#xE9D9;" Margin="0,0,10,0" />
                                     <TextBlock DockPanel.Dock="Right" Style="{StaticResource Chevron}" />
@@ -460,12 +499,33 @@
                                     </TextBlock>
                                 </DockPanel>
                             </Button>
+                            <StackPanel Margin="26,2,0,8" Visibility="{Binding Testing, Converter={StaticResource NotVis}}">
+                                <TextBlock Text="Доп. домен для проверки" Style="{StaticResource Caption}" />
+                                <TextBox BorderThickness="0" Background="Transparent" FontSize="11.5"
+                                         Text="{Binding ExtraHost, UpdateSourceTrigger=PropertyChanged}" />
+                            </StackPanel>
+                            <Border Style="{StaticResource Hairline}" />
+                            <Button Style="{StaticResource Row}" Click="UpdateLists_Click" IsEnabled="{Binding CanUpdateLists}">
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Left" Style="{StaticResource Glyph}" Text="&#xE777;" Margin="0,0,10,0" />
+                                    <TextBlock DockPanel.Dock="Right" Style="{StaticResource Chevron}" />
+                                    <TextBlock Text="{Binding UpdateListsTitle}" />
+                                </DockPanel>
+                            </Button>
                             <Border Style="{StaticResource Hairline}" />
                             <Button Style="{StaticResource Row}" Click="Lists_Click">
                                 <DockPanel>
                                     <TextBlock DockPanel.Dock="Left" Style="{StaticResource Glyph}" Text="&#xE8FD;" Margin="0,0,10,0" />
                                     <TextBlock DockPanel.Dock="Right" Style="{StaticResource Chevron}" />
                                     <TextBlock Text="Списки" />
+                                </DockPanel>
+                            </Button>
+                            <Border Style="{StaticResource Hairline}" />
+                            <Button Style="{StaticResource Row}" Click="Diagnostics_Click">
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Left" Style="{StaticResource Glyph}" Text="&#xE9D5;" Margin="0,0,10,0" />
+                                    <TextBlock DockPanel.Dock="Right" Style="{StaticResource Chevron}" />
+                                    <TextBlock Text="Диагностика" />
                                 </DockPanel>
                             </Button>
                             <Border Style="{StaticResource Hairline}" />
@@ -487,6 +547,14 @@
                                 </Button>
                             </StackPanel>
                         </StackPanel>
+                    </Border>
+
+                    <Border Style="{StaticResource Group}">
+                        <DockPanel Margin="0,2">
+                            <TextBlock DockPanel.Dock="Left" Style="{StaticResource Glyph}" Text="&#xE769;" Margin="0,0,10,0" />
+                            <Button DockPanel.Dock="Right" Style="{StaticResource MiniSwitch}" Tag="{Binding AutoPauseVpn}" Click="ToggleAutoPause_Click" IsEnabled="{Binding NotBusy}" />
+                            <TextBlock Text="Автопауза при VPN" VerticalAlignment="Center" />
+                        </DockPanel>
                     </Border>
 
                     <Border Style="{StaticResource Group}">
@@ -542,6 +610,34 @@
                             <TextBlock Text="Списки" />
                         </StackPanel>
                     </Button>
+                    <Border Style="{StaticResource Group}" Margin="0,0,0,10">
+                        <StackPanel>
+                            <TextBlock Text="Домен, ссылка или IP" Style="{StaticResource Caption}" Margin="0,4,0,2" />
+                            <TextBox Margin="0,0,0,8" BorderThickness="0" Background="Transparent"
+                                     FontSize="13" Text="{Binding ListInput, UpdateSourceTrigger=PropertyChanged}" />
+                            <StackPanel Orientation="Horizontal" Margin="0,0,0,6">
+                                <Button Style="{StaticResource Link}" Content="Добавить в обход" Click="AddBypass_Click" IsEnabled="{Binding CanSubmitList}" Margin="0,0,12,0" />
+                                <Button Style="{StaticResource Link}" Content="Исключить" Click="AddExclude_Click" IsEnabled="{Binding CanSubmitList}" Foreground="{DynamicResource SecondaryBrush}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+                    <Border Style="{StaticResource Group}" Margin="0,0,0,10" Visibility="{Binding HasUserEntries, Converter={StaticResource Vis}}">
+                        <ItemsControl ItemsSource="{Binding UserEntries}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <DockPanel Margin="0,6">
+                                        <Button DockPanel.Dock="Right" Style="{StaticResource Plain}" Click="RemoveUserEntry_Click" Tag="{Binding}" Padding="4,2" IsEnabled="{Binding DataContext.NotBusy, RelativeSource={RelativeSource AncestorType=Window}}">
+                                            <TextBlock Text="&#xE711;" FontFamily="{StaticResource IconFont}" FontSize="9" Foreground="{DynamicResource TertiaryBrush}" />
+                                        </Button>
+                                        <StackPanel>
+                                            <TextBlock Text="{Binding Value}" FontSize="11.5" TextTrimming="CharacterEllipsis" />
+                                            <TextBlock Text="{Binding Badge}" Style="{StaticResource Caption}" />
+                                        </StackPanel>
+                                    </DockPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </Border>
                     <Border Style="{StaticResource Group}">
                         <ItemsControl ItemsSource="{Binding Lists}">
                             <ItemsControl.ItemTemplate>
@@ -586,6 +682,51 @@
                         <TextBox Style="{StaticResource Mono}" Height="240" AcceptsReturn="True" AcceptsTab="False" TextWrapping="Wrap"
                                  HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto"
                                  Text="{Binding EditorText, UpdateSourceTrigger=PropertyChanged}" />
+                    </Border>
+                </StackPanel>
+
+                <!-- ===== diagnostics page ===== -->
+                <StackPanel Visibility="{Binding IsDiagnostics, Converter={StaticResource Vis}}">
+                    <DockPanel Margin="0,0,0,10">
+                        <Button DockPanel.Dock="Right" Style="{StaticResource Link}" Content="Скопировать отчёт" FontSize="11.5" Click="CopyDiagnostics_Click" IsEnabled="{Binding HasDiagnosticText}" />
+                        <Button Style="{StaticResource Link}" Click="Back_Click">
+                            <StackPanel Orientation="Horizontal">
+                                <TextBlock Text="&#xE76B;" FontFamily="{StaticResource IconFont}" FontSize="10" VerticalAlignment="Center" Margin="0,1,6,0" />
+                                <TextBlock Text="Диагностика" />
+                            </StackPanel>
+                        </Button>
+                    </DockPanel>
+                    <Border Style="{StaticResource Group}">
+                        <ItemsControl ItemsSource="{Binding Diagnostics}">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <StackPanel>
+                                        <Border Style="{StaticResource Hairline}" Visibility="{Binding ShowSeparator, Converter={StaticResource Vis}}" />
+                                        <DockPanel Margin="0,6">
+                                            <TextBlock DockPanel.Dock="Left" Text="{Binding Level}" FontSize="10" FontWeight="SemiBold" Width="36" Margin="0,2,8,0">
+                                                <TextBlock.Style>
+                                                    <Style TargetType="TextBlock">
+                                                        <Setter Property="Foreground" Value="{DynamicResource AccentBrush}" />
+                                                        <Style.Triggers>
+                                                            <DataTrigger Binding="{Binding IsFail}" Value="True">
+                                                                <Setter Property="Foreground" Value="{DynamicResource RedBrush}" />
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding IsWarn}" Value="True">
+                                                                <Setter Property="Foreground" Value="#C8871F" />
+                                                            </DataTrigger>
+                                                        </Style.Triggers>
+                                                    </Style>
+                                                </TextBlock.Style>
+                                            </TextBlock>
+                                            <StackPanel>
+                                                <TextBlock Text="{Binding Name}" FontSize="13" TextWrapping="Wrap" />
+                                                <TextBlock Text="{Binding Detail}" Style="{StaticResource Caption}" TextWrapping="Wrap" />
+                                            </StackPanel>
+                                        </DockPanel>
+                                    </StackPanel>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
                     </Border>
                 </StackPanel>
             </StackPanel>

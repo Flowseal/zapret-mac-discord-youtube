@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Net.Http;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
@@ -25,6 +26,8 @@ internal sealed class AppController
     private ReleaseInfo? availableRelease;
     private CancellationTokenSource? testCancel;
     private DateTime lastProbe = DateTime.MinValue;
+    private DateTime lastVpnProbe = DateTime.MinValue;
+    private bool pausedByVpn, startingSmartTest;
     private readonly List<TestRow> liveRows = new();
 
     public void Start(bool showOnLaunch)
@@ -88,7 +91,7 @@ internal sealed class AppController
             if (model.TestRows.FirstOrDefault(r => r.IsBest) is { } row) ApplyNamedStrategy(row.Name);
         };
         model.ApplyTestRow = ApplyNamedStrategy;
-        model.OpenLists = () => { model.Lists = ListRows(); model.Page = HudPage.Lists; };
+        model.OpenLists = () => { model.Lists = ListRows(); model.UserEntries = LoadUserEntries(); model.Page = HudPage.Lists; };
         model.OpenList = OpenList;
         model.SaveList = SaveList;
         model.OpenLogs = () => { model.Logs = LoadDiagnostics(90); model.Page = HudPage.Logs; };
@@ -102,6 +105,14 @@ internal sealed class AppController
         model.InstallUpdate = InstallUpdate;
         model.Quit = () => Application.Current.Shutdown();
         model.DismissNotice = () => { noticeTimer.Stop(); model.Notice = ""; };
+        model.FindAndApply = FindAndApply;
+        model.UpdateLists = UpdateLists;
+        model.OpenDiagnostics = OpenDiagnostics;
+        model.CopyDiagnostics = CopyDiagnostics;
+        model.ToggleAutoPause = ToggleAutoPause;
+        model.AddBypass = () => AddListEntry(exclude: false);
+        model.AddExclude = () => AddListEntry(exclude: true);
+        model.RemoveUserEntry = RemoveListEntry;
     }
 
     private string SelectedStrategy
@@ -124,6 +135,7 @@ internal sealed class AppController
         if (!File.Exists(Paths.SelectedStrategy)) State.Write(Paths.SelectedStrategy, StrategyCatalog.DefaultId);
         if (!File.Exists(Paths.IpsetMode)) State.Write(Paths.IpsetMode, IpsetModes.None);
         if (!File.Exists(Paths.GameFilterMode)) State.Write(Paths.GameFilterMode, GameFilterModes.Off);
+        if (!File.Exists(Paths.VpnAutoPause)) State.Write(Paths.VpnAutoPause, "0");
     }
 
     private void ToggleHud()
@@ -158,6 +170,9 @@ internal sealed class AppController
             model.TestEnabled = !busy;
         }
         if (model.Page == HudPage.Logs) model.Logs = LoadDiagnostics(90);
+        if (model.Page == HudPage.Lists) { model.Lists = ListRows(); model.UserEntries = LoadUserEntries(); }
+        model.AutoPauseVpn = State.Read(Paths.VpnAutoPause) == "1";
+        RefreshVpn();
         if (updating)
         {
             model.VersionTitle = "Установка обновления…";
@@ -209,6 +224,7 @@ internal sealed class AppController
 
     private void ToggleService()
     {
+        pausedByVpn = false;
         if (Engine.IsRunning)
         {
             RunEngineOperation(() =>
@@ -335,6 +351,19 @@ internal sealed class AppController
         ShowNotice($"Стратегия: {name}");
     }
 
+    private void FindAndApply()
+    {
+        if (busy) return;
+        if (testing)
+        {
+            if (model.TestIsSmart) TestStrategies();
+            return;
+        }
+        model.TestIsSmart = true;
+        startingSmartTest = true;
+        TestStrategies();
+    }
+
     private async void TestStrategies()
     {
         if (busy) return;
@@ -345,6 +374,8 @@ internal sealed class AppController
             Refresh();
             return;
         }
+        if (!startingSmartTest) model.TestIsSmart = false;
+        startingSmartTest = false;
         testing = true;
         model.CancellingTest = false;
         liveRows.Clear();
@@ -365,9 +396,16 @@ internal sealed class AppController
             model.TestRows = liveRows.ToList();
         });
         string summary;
+        string? autoId = null, autoName = null;
         try
         {
-            summary = await tester.RunAsync(strategies, SelectedStrategy, SelectedIpset, SelectedGameFilter, Engine.IsRunning, testCancel.Token);
+            var ordered = model.TestIsSmart
+                ? StrategyOrder.ForSmart(strategies, SelectedStrategy, StrategyOrder.ParseWinners(model.TestBest))
+                : strategies;
+            var report = await tester.RunAsync(ordered, SelectedStrategy, SelectedIpset, SelectedGameFilter, Engine.IsRunning, testCancel.Token, model.TestIsSmart, model.ExtraHost);
+            summary = report.Summary;
+            autoId = report.AutoApplyId;
+            autoName = report.AutoApplyName;
         }
         catch (Exception ex)
         {
@@ -380,6 +418,11 @@ internal sealed class AppController
         model.TestProgress = "";
         model.TestBest = summary;
         model.TestRows = liveRows.Select(r => r with { IsBest = BestTracker.IsBestInSummary(summary, r.Name) }).ToList();
+        if (autoId != null)
+        {
+            SelectStrategy(autoId);
+            if (autoName != null) ShowNotice("Стратегия: " + autoName);
+        }
         model.Page = HudPage.More;
         lastProbe = DateTime.MinValue;
         Refresh();
@@ -532,7 +575,169 @@ internal sealed class AppController
         }
     }
 
-    public void Shutdown()
+    private void RefreshVpn()
+    {
+        if ((DateTime.UtcNow - lastVpnProbe).TotalSeconds < 4) return;
+        lastVpnProbe = DateTime.UtcNow;
+        var match = SystemDiagnostics.DetectVpn();
+        model.VpnWarning = match.IsVpn ? (match.Reason ?? "обнаружен VPN") : "";
+        var auto = model.AutoPauseVpn;
+        if (auto && match.IsVpn && Engine.IsRunning && !testing && !busy && !updating)
+        {
+            pausedByVpn = true;
+            RunEngineOperation(() =>
+            {
+                Engine.Stop();
+                State.Write(Paths.EngineEnabled, "0");
+            }, failure =>
+            {
+                if (failure == null) ShowNotice("Nimbus на паузе: активен VPN");
+            });
+            return;
+        }
+        if (auto && !match.IsVpn && pausedByVpn && !Engine.IsRunning && !testing && !busy && !updating)
+        {
+            pausedByVpn = false;
+            RunEngineOperation(() =>
+            {
+                Engine.Start(SelectedStrategy, SelectedIpset, gameFilterMode: SelectedGameFilter);
+                State.Write(Paths.EngineEnabled, "1");
+            }, failure =>
+            {
+                if (failure == null) ShowNotice("VPN выключен, Nimbus снова включён");
+            });
+            return;
+        }
+        if (!match.IsVpn && Engine.IsRunning) pausedByVpn = false;
+    }
+
+    private void ToggleAutoPause()
+    {
+        var next = State.Read(Paths.VpnAutoPause) != "1";
+        State.Write(Paths.VpnAutoPause, next ? "1" : "0");
+        if (!next) pausedByVpn = false;
+        Refresh();
+    }
+
+    private async void UpdateLists()
+    {
+        if (busy || testing || model.UpdatingLists) return;
+        model.UpdatingLists = true;
+        try
+        {
+            var files = await Task.Run(DownloadUpstreamLists);
+            var stamp = DateTime.Now.ToString("yyyyMMdd-HHmmss");
+            var backup = Path.Combine(Paths.UserLists, "backup-" + stamp);
+            ListUpdater.Apply(Paths.UserLists, files, backup);
+            ShowNotice($"Списки обновлены ({files.Count})");
+            ApplyIfRunning();
+        }
+        catch (Exception ex)
+        {
+            ShowError(ex.Message);
+        }
+        model.UpdatingLists = false;
+        if (model.Page == HudPage.Lists) { model.Lists = ListRows(); model.UserEntries = LoadUserEntries(); }
+    }
+
+    private static IReadOnlyDictionary<string, string> DownloadUpstreamLists()
+    {
+        using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(20) };
+        client.DefaultRequestHeaders.UserAgent.ParseAdd("Nimbus");
+        var files = new Dictionary<string, string>();
+        foreach (var name in ListUpdater.UpstreamFiles)
+        {
+            var bytes = client.GetByteArrayAsync(ListUpdater.FileUrl(name)).GetAwaiter().GetResult();
+            var text = ListUpdater.Decode(bytes);
+            var check = ListUpdater.Validate(name, text);
+            if (!check.Ok) throw new InvalidOperationException(check.Reason);
+            files[name] = text;
+        }
+        return files;
+    }
+
+    private void OpenDiagnostics()
+    {
+        var rows = SystemDiagnostics.Collect();
+        model.Diagnostics = rows.Select((r, i) => new DiagnosticViewRow(r.LevelText, r.Name, r.Detail, i > 0)).ToList();
+        model.DiagnosticText = SystemDiagnostics.Format(rows);
+        model.Page = HudPage.Diagnostics;
+    }
+
+    private void CopyDiagnostics()
+    {
+        try
+        {
+            if (model.DiagnosticText.Length == 0) return;
+            Clipboard.SetText(model.DiagnosticText);
+            ShowNotice("Отчёт скопирован");
+        }
+        catch (Exception ex)
+        {
+            ShowError(ex.Message);
+        }
+    }
+
+    private void AddListEntry(bool exclude)
+    {
+        var parsed = HostEntry.Parse(model.ListInput);
+        if (parsed == null)
+        {
+            ShowError("Не получилось распознать домен или IP");
+            return;
+        }
+        try
+        {
+            var name = UserLists.FileFor(parsed.Kind, exclude);
+            var path = Path.Combine(Paths.UserLists, name);
+            Directory.CreateDirectory(Paths.UserLists);
+            var current = File.Exists(path) ? File.ReadAllText(path) : "";
+            File.WriteAllText(path, UserLists.Add(current, parsed.Value));
+            model.ListInput = "";
+            model.UserEntries = LoadUserEntries();
+            model.Lists = ListRows();
+            ShowNotice((exclude ? "Исключено: " : "Добавлено в обход: ") + parsed.Value);
+            ApplyIfRunning();
+        }
+        catch (Exception ex)
+        {
+            ShowError(ex.Message);
+        }
+    }
+
+    private void RemoveListEntry(UserEntryRow entry)
+    {
+        try
+        {
+            var path = Path.Combine(Paths.UserLists, entry.File);
+            var current = File.Exists(path) ? File.ReadAllText(path) : "";
+            File.WriteAllText(path, UserLists.Remove(current, entry.Value));
+            model.UserEntries = LoadUserEntries();
+            model.Lists = ListRows();
+            ApplyIfRunning();
+        }
+        catch (Exception ex)
+        {
+            ShowError(ex.Message);
+        }
+    }
+
+    private static IReadOnlyList<UserEntryRow> LoadUserEntries()
+    {
+        var rows = new List<UserEntryRow>();
+        foreach (var name in new[] { UserLists.BypassDomains, UserLists.BypassIpset, UserLists.ExcludeDomains, UserLists.ExcludeIpset })
+        {
+            var path = Path.Combine(Paths.UserLists, name);
+            if (!File.Exists(path)) continue;
+            foreach (var value in UserLists.ReadEntries(File.ReadAllText(path)))
+            {
+                rows.Add(new UserEntryRow(name, value));
+            }
+        }
+        return rows;
+    }
+
+        public void Shutdown()
     {
         testCancel?.Cancel();
         tray.Dispose();

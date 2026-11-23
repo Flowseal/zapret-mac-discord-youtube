@@ -11,8 +11,8 @@ RESOURCES="$CONTENTS/Resources"
 SDK=$(/usr/bin/xcrun --sdk macosx --show-sdk-path)
 SWIFTC=$(/usr/bin/xcrun -f swiftc)
 CLANG=$(/usr/bin/xcrun -f clang)
-SWIFT_SOURCES="$ROOT/macos/App/ZapretMacApp.swift $ROOT/macos/App/NimbusHUD.swift"
-SWIFT_FLAGS="-O -parse-as-library -sdk $SDK -framework AppKit -framework SwiftUI -framework ServiceManagement -framework Security -framework CryptoKit"
+SWIFT_SOURCES="$ROOT/macos/App/ZapretMacApp.swift $ROOT/macos/App/NimbusHUD.swift $ROOT/macos/App/NimbusSupport.swift"
+SWIFT_FLAGS="-O -parse-as-library -sdk $SDK -framework AppKit -framework SwiftUI -framework ServiceManagement -framework Security -framework CryptoKit -framework QuartzCore"
 
 /bin/rm -rf "$BUILD"
 /bin/mkdir -p "$MACOS" "$RESOURCES" "$DIST"
@@ -25,7 +25,7 @@ SWIFT_FLAGS="-O -parse-as-library -sdk $SDK -framework AppKit -framework SwiftUI
 /bin/cp "$ROOT/macos/Info.plist" "$CONTENTS/Info.plist"
 /usr/bin/ditto "$ROOT/macos/Payload" "$RESOURCES/Payload"
 /bin/cp "$ROOT/nfq/utunws" "$RESOURCES/Payload/bin/utunws"
-/bin/chmod 755 "$MACOS/Nimbus" "$RESOURCES/Payload/bin/utunws" "$RESOURCES/Payload/install.sh" "$RESOURCES/Payload/run.sh" "$RESOURCES/Payload/restart.sh" "$RESOURCES/Payload/stop.sh" "$RESOURCES/Payload/test-strategies.sh" "$RESOURCES/Payload/update-app.sh" "$RESOURCES/Payload/watchdog.sh"
+/bin/chmod 755 "$MACOS/Nimbus" "$RESOURCES/Payload/bin/utunws" "$RESOURCES/Payload/install.sh" "$RESOURCES/Payload/run.sh" "$RESOURCES/Payload/restart.sh" "$RESOURCES/Payload/stop.sh" "$RESOURCES/Payload/test-strategies.sh" "$RESOURCES/Payload/update-app.sh" "$RESOURCES/Payload/watchdog.sh" "$RESOURCES/Payload/diagnose.sh"
 /usr/bin/codesign --force --deep --sign - "$APP"
 /bin/rm -f "$DIST/Nimbus-macOS-universal.zip"
 /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$APP" "$DIST/Nimbus-macOS-universal.zip"

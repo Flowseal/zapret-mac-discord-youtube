@@ -1,5 +1,5 @@
-# Builds dist/Nimbus-Windows-x64.exe: a self-contained single-file WPF app with winws + WinDivert embedded.
-# Requires the .NET 8 SDK. Usage: pwsh ./windows/build.ps1
+# Builds dist/Nimbus-Windows-x64.exe (self-contained) and dist/Nimbus-Windows-x64-lite.exe
+# (framework-dependent, needs the .NET 8 Desktop Runtime). Usage: pwsh ./windows/build.ps1
 param(
     [string]$Configuration = "Release",
     [switch]$SkipTests
@@ -52,3 +52,12 @@ $exe = Join-Path $dist "Nimbus-Windows-x64.exe"
 Copy-Item (Join-Path $publish "Nimbus.exe") $exe -Force
 $size = [Math]::Round((Get-Item $exe).Length / 1MB, 1)
 Write-Host "Built $exe ($size MB)"
+
+$publishLite = Join-Path $Root "build/windows-lite"
+if (Test-Path $publishLite) { Remove-Item -Recurse -Force $publishLite }
+dotnet publish (Join-Path $WindowsDir "src/Nimbus/Nimbus.csproj") -c $Configuration -o $publishLite -p:SelfContained=false
+if ($LASTEXITCODE -ne 0) { throw "lite publish failed" }
+$lite = Join-Path $dist "Nimbus-Windows-x64-lite.exe"
+Copy-Item (Join-Path $publishLite "Nimbus.exe") $lite -Force
+$liteSize = [Math]::Round((Get-Item $lite).Length / 1MB, 1)
+Write-Host "Built $lite ($liteSize MB, needs .NET 8 Desktop Runtime)"

@@ -17,5 +17,6 @@
     <!-- Strategy files are shared with the Mac app; tests run against the real ones. -->
     <None Include="..\..\..\macos\Payload\strategies.tsv" Link="payload\strategies.tsv" CopyToOutputDirectory="PreserveNewest" />
     <None Include="..\..\..\macos\Payload\strategies\*.conf.in" Link="payload\strategies\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="..\..\..\macos\Payload\default-lists\*.txt" Link="payload\default-lists\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 </Project>

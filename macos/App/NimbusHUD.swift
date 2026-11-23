@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 import SwiftUI
 
 let nimbusBlue = Color(red: 10 / 255, green: 132 / 255, blue: 1)
@@ -18,7 +19,19 @@ enum ServiceHealth {
 }
 
 enum HUDPage: String {
-    case main, more, logs, lists, editor
+    case main, more, logs, lists, editor, diagnostics
+}
+
+struct UserEntry: Identifiable, Equatable {
+    let file: String
+    let value: String
+    var id: String { file + "	" + value }
+    var badge: String {
+        switch file {
+        case UserListIO.bypassDomains, UserListIO.bypassIpset: return "обход"
+        default: return "исключение"
+        }
+    }
 }
 
 struct TestRow: Identifiable, Equatable {
@@ -65,6 +78,15 @@ final class HUDModel: ObservableObject {
     @Published var editorText = ""
     @Published var notice = ""
     @Published var noticeError = false
+    @Published var vpnWarning = ""
+    @Published var autoPauseVpn = false
+    @Published var listInput = ""
+    @Published var extraHost = ""
+    @Published var userEntries: [UserEntry] = []
+    @Published var diagnostics: [DiagnosticItem] = []
+    @Published var diagnosticText = ""
+    @Published var updatingLists = false
+    @Published var testIsSmart = false
 
     var toggleService: () -> Void = {}
     var selectStrategy: (String) -> Void = { _ in }
@@ -84,6 +106,14 @@ final class HUDModel: ObservableObject {
     var quit: () -> Void = {}
     var onShown: () -> Void = {}
     var dismissNotice: () -> Void = {}
+    var findAndApply: () -> Void = {}
+    var updateLists: () -> Void = {}
+    var openDiagnostics: () -> Void = {}
+    var copyDiagnostics: () -> Void = {}
+    var toggleAutoPause: () -> Void = {}
+    var addBypass: () -> Void = {}
+    var addExclude: () -> Void = {}
+    var removeUserEntry: (UserEntry) -> Void = { _ in }
 
     var ipsetTitle: String {
         switch ipsetMode {
@@ -95,6 +125,18 @@ final class HUDModel: ObservableObject {
 
     var statusTitle: String { running ? "Включён" : "Выключен" }
     var hasTestPanel: Bool { testing || !testRows.isEmpty || !testBest.isEmpty }
+    var hasVpnWarning: Bool { !vpnWarning.isEmpty }
+    var testFraction: Double { StrategyOrdering.progressFraction(testProgress) }
+    var findTitle: String {
+        if testing && testIsSmart {
+            return cancellingTest ? "Остановка…" : "Остановить подбор"
+        }
+        return "Найти и применить"
+    }
+    var findEnabled: Bool {
+        if testing && testIsSmart { return !cancellingTest }
+        return !testing && !busy
+    }
 
     var applyBestTitle: String {
         if let name = testRows.first(where: \.isBest)?.name {
@@ -106,7 +148,7 @@ final class HUDModel: ObservableObject {
     func goBack() {
         switch page {
         case .editor: page = .lists
-        case .logs, .lists: page = .more
+        case .logs, .lists, .diagnostics: page = .more
         case .more: page = .main
         case .main: break
         }
@@ -162,36 +204,84 @@ final class HUDController {
     func show(relativeTo button: NSStatusBarButton) {
         statusButton = button
         model.onShown()
-        relayout()
+        relayout(animated: false)
+        panel.alphaValue = 0
+        if !MotionSettings.reduceMotion, let layer = hosting.view.layer {
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            let frame = hosting.view.frame
+            layer.anchorPoint = CGPoint(x: 0.5, y: 1)
+            layer.position = CGPoint(x: frame.midX, y: frame.maxY)
+            layer.transform = CATransform3DConcat(
+                CATransform3DMakeTranslation(0, 6, 0),
+                CATransform3DMakeScale(0.97, 0.97, 1)
+            )
+            CATransaction.commit()
+        }
         panel.makeKeyAndOrderFront(nil)
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = MotionSettings.reduceMotion ? 0.12 : 0.20
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 1, 0.36, 1)
+            context.allowsImplicitAnimation = true
+            panel.animator().alphaValue = 1
+            hosting.view.layer?.transform = CATransform3DIdentity
+        }
         startMonitors()
     }
 
     func relayout() {
+        relayout(animated: true)
+    }
+
+    func relayout(animated: Bool) {
         guard let button = statusButton else { return }
         hosting.view.layoutSubtreeIfNeeded()
         var size = hosting.view.fittingSize
         if size.width < 280 { size.width = 292 }
         if size.height < 180 { size.height = 240 }
         if size.height > 560 { size.height = 560 }
-        panel.setContentSize(size)
-
-        guard let buttonWindow = button.window else { return }
+        guard let buttonWindow = button.window else {
+            panel.setContentSize(size)
+            return
+        }
         let buttonRect = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
         let screen = buttonWindow.screen ?? NSScreen.main
         let visible = screen?.visibleFrame ?? buttonRect
         var x = buttonRect.midX - size.width / 2
         x = min(max(x, visible.minX + 8), visible.maxX - size.width - 8)
         let y = buttonRect.minY - size.height - 6
-        panel.setFrame(NSRect(x: x, y: y, width: size.width, height: size.height), display: true)
+        let frame = NSRect(x: x, y: y, width: size.width, height: size.height)
+        if animated, panel.isVisible {
+            NSAnimationContext.runAnimationGroup { context in
+                context.duration = MotionSettings.reduceMotion ? 0.12 : 0.24
+                context.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 1, 0.36, 1)
+                context.allowsImplicitAnimation = true
+                panel.animator().setFrame(frame, display: true)
+            }
+        } else {
+            panel.setFrame(frame, display: true)
+        }
     }
 
     func close() {
         stopMonitors()
-        panel.orderOut(nil)
-        if !model.testing {
-            model.page = .main
+        let finish = {
+            self.panel.orderOut(nil)
+            self.panel.alphaValue = 1
+            self.hosting.view.layer?.transform = CATransform3DIdentity
+            if !self.model.testing {
+                self.model.page = .main
+            }
         }
+        if !panel.isVisible {
+            finish()
+            return
+        }
+        NSAnimationContext.runAnimationGroup({ context in
+            context.duration = 0.12
+            context.timingFunction = CAMediaTimingFunction(controlPoints: 0.4, 0, 1, 1)
+            panel.animator().alphaValue = 0
+        }, completionHandler: finish)
     }
 
     private func startMonitors() {
@@ -237,7 +327,10 @@ struct NimbusHUDView: View {
                     .padding(.bottom, 8)
             }
             pageContent
+                .id(model.page)
+                .transition(pageTransition)
         }
+        .animation(pageAnimation, value: model.page)
         .padding(12)
         .frame(width: 276)
         .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -248,6 +341,20 @@ struct NimbusHUDView: View {
         .padding(8)
     }
 
+    private var pageAnimation: Animation {
+        MotionSettings.reduceMotion
+            ? .easeInOut(duration: 0.12)
+            : .spring(response: 0.28, dampingFraction: 0.82)
+    }
+
+    private var pageTransition: AnyTransition {
+        if MotionSettings.reduceMotion { return .opacity }
+        return .asymmetric(
+            insertion: .offset(x: 14).combined(with: .opacity),
+            removal: .offset(x: -14).combined(with: .opacity)
+        )
+    }
+
     @ViewBuilder
     private var pageContent: some View {
         switch model.page {
@@ -256,6 +363,7 @@ struct NimbusHUDView: View {
         case .logs: logsPage
         case .lists: listsPage
         case .editor: editorPage
+        case .diagnostics: diagnosticsPage
         }
     }
 
@@ -346,15 +454,39 @@ struct NimbusHUDView: View {
 
             group {
                 settingsRow(
+                    model.findTitle,
+                    icon: "wand.and.stars",
+                    enabled: model.findEnabled,
+                    destructive: model.testing && model.testIsSmart,
+                    action: model.findAndApply
+                )
+                hairline
+                settingsRow(
                     model.testTitle,
                     icon: "flask",
-                    enabled: model.testEnabled,
-                    destructive: model.testing,
+                    enabled: model.testing ? (model.testEnabled && !model.testIsSmart) : model.testEnabled,
+                    destructive: model.testing && !model.testIsSmart,
                     action: model.testStrategies
                 )
+                if !model.testing {
+                    TextField("Доп. домен для проверки", text: Binding(
+                        get: { model.extraHost },
+                        set: { model.extraHost = $0 }
+                    ))
+                    .textFieldStyle(.plain)
+                    .font(.caption)
+                    .padding(.vertical, 6)
+                    .foregroundStyle(.secondary)
+                }
+                hairline
+                settingsRow(model.updatingLists ? "Обновление списков…" : "Обновить списки", icon: "arrow.triangle.2.circlepath", enabled: !model.busy && !model.testing && !model.updatingLists, action: model.updateLists)
                 hairline
                 settingsRow("Списки", icon: "list.bullet.rectangle", enabled: true) {
                     model.openLists()
+                }
+                hairline
+                settingsRow("Диагностика", icon: "stethoscope", enabled: true) {
+                    model.openDiagnostics()
                 }
                 hairline
                 settingsRow("Логи", icon: "text.alignleft", enabled: true) {
@@ -364,6 +496,10 @@ struct NimbusHUDView: View {
                     hairline
                     settingsRow("Перезапустить", icon: "arrow.clockwise", enabled: !model.busy, action: model.restartService)
                 }
+            }
+
+            group {
+                toggleRow(title: "Автопауза при VPN", icon: "pause.circle", isOn: model.autoPauseVpn, action: model.toggleAutoPause)
             }
 
             group {
@@ -419,6 +555,58 @@ struct NimbusHUDView: View {
     private var listsPage: some View {
         VStack(alignment: .leading, spacing: 10) {
             backButton("Списки")
+
+            group {
+                TextField("Домен, ссылка или IP", text: Binding(
+                    get: { model.listInput },
+                    set: { model.listInput = $0 }
+                ))
+                .textFieldStyle(.plain)
+                .font(.subheadline)
+                .padding(.vertical, 8)
+                HStack(spacing: 8) {
+                    Button("Добавить в обход", action: model.addBypass)
+                        .buttonStyle(.plain)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(nimbusBlue)
+                        .disabled(model.busy || model.listInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    Button("Исключить", action: model.addExclude)
+                        .buttonStyle(.plain)
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .disabled(model.busy || model.listInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+                .padding(.bottom, 8)
+            }
+
+            if !model.userEntries.isEmpty {
+                group {
+                    ForEach(Array(model.userEntries.enumerated()), id: \.element.id) { index, entry in
+                        HStack(spacing: 8) {
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(entry.value)
+                                    .font(.caption)
+                                    .lineLimit(1)
+                                Text(entry.badge)
+                                    .font(.caption2)
+                                    .foregroundStyle(.secondary)
+                            }
+                            Spacer(minLength: 4)
+                            Button {
+                                model.removeUserEntry(entry)
+                            } label: {
+                                Image(systemName: "xmark")
+                                    .font(.system(size: 8, weight: .bold))
+                                    .foregroundStyle(.tertiary)
+                            }
+                            .buttonStyle(.plain)
+                            .disabled(model.busy)
+                        }
+                        .padding(.vertical, 6)
+                        if index < model.userEntries.count - 1 { hairline }
+                    }
+                }
+            }
 
             group {
                 ForEach(Array(model.lists.enumerated()), id: \.element.id) { index, item in
@@ -483,6 +671,43 @@ struct NimbusHUDView: View {
         }
     }
 
+    private var diagnosticsPage: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                backButton("Диагностика")
+                Spacer()
+                Button("Скопировать отчёт", action: model.copyDiagnostics)
+                    .buttonStyle(.plain)
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(nimbusBlue)
+                    .disabled(model.diagnosticText.isEmpty)
+            }
+            group {
+                ForEach(Array(model.diagnostics.enumerated()), id: \.element.id) { index, item in
+                    HStack(alignment: .top, spacing: 8) {
+                        Text(item.level == "OK" ? "OK" : (item.isFail ? "FAIL" : "WARN"))
+                            .font(.caption2.monospaced().weight(.semibold))
+                            .foregroundStyle(item.isFail ? Color.red : (item.isWarn ? Color.orange : nimbusBlue))
+                            .frame(width: 32, alignment: .leading)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(item.name)
+                                .font(.subheadline)
+                            if !item.detail.isEmpty {
+                                Text(item.detail)
+                                    .font(.caption)
+                                    .foregroundStyle(.secondary)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.vertical, 6)
+                    if index < model.diagnostics.count - 1 { hairline }
+                }
+            }
+        }
+    }
+
     private func backButton(_ title: String) -> some View {
         Button {
             model.goBack()
@@ -522,8 +747,20 @@ struct NimbusHUDView: View {
         VStack(alignment: .leading, spacing: 6) {
             if !model.testProgress.isEmpty {
                 Text(model.testProgress)
-                    .font(.caption)
+                    .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
+            }
+            if model.testing {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().fill(nimbusBlue.opacity(0.16))
+                        Capsule()
+                            .fill(nimbusBlue)
+                            .frame(width: max(6, geo.size.width * model.testFraction))
+                    }
+                }
+                .frame(height: 3)
+                .animation(MotionSettings.reduceMotion ? .easeInOut(duration: 0.12) : .easeOut(duration: 0.18), value: model.testFraction)
             }
             if !model.testRows.isEmpty {
                 ScrollView {
@@ -593,39 +830,47 @@ struct NimbusHUDView: View {
     }
 
     private func serviceCell(_ title: String, _ health: ServiceHealth) -> some View {
-        HStack(spacing: 7) {
-            Circle()
-                .fill(health.color)
-                .frame(width: 7, height: 7)
-            Text(title)
-                .font(.subheadline)
-                .foregroundStyle(.primary)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 2)
-        .frame(maxWidth: .infinity)
+        ServiceDotCell(title: title, health: health)
     }
 
     private var header: some View {
-        HStack(spacing: 10) {
-            headerCloud
-            VStack(alignment: .leading, spacing: 1) {
-                Text("Nimbus")
-                    .font(.headline)
-                Text(model.statusTitle)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 10) {
+                headerCloud
+                VStack(alignment: .leading, spacing: 1) {
+                    Text("Nimbus")
+                        .font(.headline)
+                    Text(model.statusTitle)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .contentTransition(.opacity)
+                        .id(model.statusTitle)
+                }
+                Spacer(minLength: 8)
+                Toggle("", isOn: Binding(
+                    get: { model.running },
+                    set: { _ in model.toggleService() }
+                ))
+                .toggleStyle(.switch)
+                .controlSize(.small)
+                .tint(nimbusBlue)
+                .labelsHidden()
+                .disabled(model.busy)
             }
-            Spacer(minLength: 8)
-            Toggle("", isOn: Binding(
-                get: { model.running },
-                set: { _ in model.toggleService() }
-            ))
-            .toggleStyle(.switch)
-            .controlSize(.small)
-            .tint(nimbusBlue)
-            .labelsHidden()
-            .disabled(model.busy)
+            if model.hasVpnWarning {
+                HStack(spacing: 6) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 9, weight: .semibold))
+                    Text("VPN активен")
+                        .font(.caption.weight(.medium))
+                    Spacer(minLength: 0)
+                }
+                .foregroundStyle(.orange)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(Color.orange.opacity(0.14), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .help(model.vpnWarning)
+            }
         }
     }
 
@@ -647,7 +892,6 @@ struct NimbusHUDView: View {
         if #available(macOS 14.0, *) {
             image
                 .contentTransition(.symbolEffect(.replace))
-                .symbolEffect(.pulse, options: .repeating.speed(0.35), isActive: model.running)
         } else {
             image
         }
@@ -759,5 +1003,41 @@ struct NimbusHUDView: View {
             .fill(Color.primary.opacity(0.08))
             .frame(height: 1)
             .padding(.leading, 26)
+    }
+}
+
+private struct ServiceDotCell: View {
+    let title: String
+    let health: ServiceHealth
+    @State private var ping = false
+
+    var body: some View {
+        HStack(spacing: 7) {
+            ZStack {
+                Circle()
+                    .fill(health.color)
+                    .frame(width: 7, height: 7)
+                Circle()
+                    .stroke(health.color.opacity(0.45), lineWidth: 1)
+                    .frame(width: 7, height: 7)
+                    .scaleEffect(ping ? 2.2 : 1)
+                    .opacity(ping && health == .ok ? 0 : 0)
+            }
+            .frame(width: 14, height: 14)
+            Text(title)
+                .font(.subheadline)
+                .foregroundStyle(.primary)
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 2)
+        .frame(maxWidth: .infinity)
+        .onChange(of: health) { _, newValue in
+            guard newValue == .ok, !MotionSettings.reduceMotion else {
+                ping = false
+                return
+            }
+            ping = false
+            withAnimation(.easeOut(duration: 0.42)) { ping = true }
+        }
     }
 }

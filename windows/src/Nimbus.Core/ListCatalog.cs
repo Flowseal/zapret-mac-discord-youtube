@@ -10,6 +10,7 @@ public static class ListCatalog
     {
         "list-general-user.txt",
         "list-exclude-user.txt",
+        "ipset-all-user.txt",
         "ipset-exclude-user.txt",
         "list-general.txt",
         "list-google.txt",
@@ -23,7 +24,7 @@ public static class ListCatalog
         "list-general.txt" or "list-general-user.txt" => "Основные",
         "list-google.txt" => "Google",
         "list-exclude.txt" or "list-exclude-user.txt" => "Исключения",
-        "ipset-all.txt" => "IP-набор",
+        "ipset-all.txt" or "ipset-all-user.txt" => "IP-набор",
         "ipset-exclude.txt" or "ipset-exclude-user.txt" => "IP исключения",
         _ => name,
     };
