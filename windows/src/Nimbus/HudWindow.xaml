@@ -8,7 +8,6 @@
         SizeToContent="Height"
         MaxHeight="760"
         WindowStyle="None"
-        AllowsTransparency="True"
         Background="Transparent"
         ResizeMode="NoResize"
         ShowInTaskbar="False"

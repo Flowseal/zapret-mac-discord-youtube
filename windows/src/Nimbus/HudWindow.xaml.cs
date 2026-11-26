@@ -33,6 +33,8 @@ internal partial class HudWindow : Window
     {
         this.model = model;
         InitializeComponent();
+        AllowsTransparency = !Backdrop.UseComposition;
+        if (!AllowsTransparency) SourceInitialized += (_, _) => Backdrop.Apply(this);
         DataContext = model;
         BuildSkeleton();
         model.PropertyChanged += OnModelChanged;
@@ -43,6 +45,16 @@ internal partial class HudWindow : Window
             if (IsVisible) { Reposition(); UpdateTestBar(); }
         };
         PreviewKeyDown += OnPreviewKeyDown;
+        PreviewMouseDown += (_, e) =>
+        {
+            // the transparent shadow margin is part of the window: a click there counts as outside
+            var p = e.GetPosition(Root);
+            if (p.X < 0 || p.Y < 0 || p.X > Root.ActualWidth || p.Y > Root.ActualHeight)
+            {
+                e.Handled = true;
+                HideHud();
+            }
+        };
         ticker.Tick += (_, _) => model.Tick();
         Loaded += (_, _) =>
         {
