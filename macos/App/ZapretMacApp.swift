@@ -543,7 +543,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Last lines of zapret.log (source "nimbus") and engine.log (source "engine") for the Логи page.
     private func loadLogs(limit: Int = 400) {
-        hudModel.logs = loadDiagnostics(limit: 90)
+        hudModel.update(\.logs, loadDiagnostics(limit: 90))
         let root = URL(fileURLWithPath: "/Library/Application Support/ZapretMac", isDirectory: true)
         var rows: [LogLine] = []
         for (name, source) in [("zapret.log", "nimbus"), ("engine.log", "engine")] {
