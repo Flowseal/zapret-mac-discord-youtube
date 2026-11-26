@@ -184,7 +184,9 @@ internal static class SystemDiagnostics
     private static DiagnosticRow VpnAdapters()
     {
         var match = DetectVpn();
-        if (match.IsVpn) return new DiagnosticRow("VPN", DiagnosticLevel.Warn, match.Reason ?? "обнаружен активный туннель");
+        if (match.IsVpn && VpnSignatures.IsFullTunnelClient(match.Reason))
+            return new DiagnosticRow("VPN", DiagnosticLevel.Warn, (match.Reason ?? "WARP") + ": перехватывает все соединения, обход не сработает");
+        if (match.IsVpn) return new DiagnosticRow("VPN", DiagnosticLevel.Pass, (match.Reason ?? "туннель") + ": трафик туннеля Nimbus не трогает");
         return new DiagnosticRow("VPN", DiagnosticLevel.Pass, "активного VPN-туннеля не видно");
     }
 

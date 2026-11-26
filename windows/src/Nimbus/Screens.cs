@@ -37,6 +37,8 @@ internal static class Screens
             m.EngineStarted = started;
             m.NetworkInterface = "Wi-Fi";
             m.NetworkAddress = "192.168.1.24";
+            m.VpnNote = "WireGuard · не трогаем";
+            m.LeaveAlone = "203.0.113.7, 10.8.0.0/16";
         }
         foreach (var light in new[] { false, true })
         {
@@ -101,7 +103,7 @@ internal static class Screens
                 {
                     new DiagnosticViewRow("OK", "winws", "работает копия Nimbus", false),
                     new DiagnosticViewRow("OK", "DNS", "discord.com → 162.159.130.234", true),
-                    new DiagnosticViewRow("WARN", "VPN", "WireGuard", true),
+                    new DiagnosticViewRow("OK", "VPN", "WireGuard: трафик туннеля Nimbus не трогает", true),
                     new DiagnosticViewRow("FAIL", "TCP timestamps", "выключены", true),
                 };
                 m.DiagnosticText = "Nimbus " + Updater.CurrentVersion + "\n";

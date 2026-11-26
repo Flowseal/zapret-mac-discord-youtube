@@ -797,6 +797,15 @@
                                     <TextBlock Text="Автопауза при VPN" VerticalAlignment="Center" />
                                 </DockPanel>
                             </Button>
+                            <Border Style="{StaticResource InputBox}" Margin="10,4" local:Search.Keywords="не трогать адреса исключения vpn">
+                                <DockPanel>
+                                    <TextBlock DockPanel.Dock="Left" Style="{StaticResource Glyph}" Text="&#xE72E;" Foreground="{DynamicResource T3Brush}" Margin="0,0,8,0" />
+                                    <Grid>
+                                        <TextBlock Text="Не трогать адреса" Style="{StaticResource Placeholder}" Visibility="{Binding Text, ElementName=LeaveAloneBox, Converter={StaticResource EmptyVis}}" />
+                                        <TextBox x:Name="LeaveAloneBox" Style="{StaticResource Field}" FontFamily="{StaticResource MonoFont}" FontSize="12.5" ToolTip="IP или сеть через запятую, например 203.0.113.7, 10.8.0.0/16" Text="{Binding LeaveAlone, UpdateSourceTrigger=LostFocus}" KeyDown="LeaveAlone_KeyDown" />
+                                    </Grid>
+                                </DockPanel>
+                            </Border>
                             <Button Style="{StaticResource Row}" Click="InstallUpdate_Click" IsEnabled="{Binding UpdateRowEnabled}" Visibility="{Binding ShowUpdateRow, Converter={StaticResource Vis}}" local:Search.Keywords="обновить обновление версия">
                                 <DockPanel>
                                     <TextBlock DockPanel.Dock="Left" Style="{StaticResource Glyph}" Text="&#xE896;" />

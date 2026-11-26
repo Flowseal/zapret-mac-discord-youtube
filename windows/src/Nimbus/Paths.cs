@@ -29,6 +29,10 @@ internal static class Paths
     public static string IpsetMode => Path.Combine(DataRoot, "ipset-mode");
     public static string GameFilterMode => Path.Combine(DataRoot, "game-filter-mode");
     public static string VpnAutoPause => Path.Combine(DataRoot, "vpn-autopause");
+    /// <summary>"Не трогать адреса": the user's own list of addresses and networks to leave alone.</summary>
+    public static string LeaveAlone => Path.Combine(DataRoot, "leave-alone");
+    /// <summary>Interface plan the running engine was started with, see <see cref="Nimbus.Core.EnginePlan"/>.</summary>
+    public static string EnginePlanFile => Path.Combine(Base, "engine-plan");
     public static string EngineEnabled => Path.Combine(DataRoot, "engine-enabled");
     public static string TestReport => Path.Combine(DataRoot, "strategy-test.txt");
     public static string UpdateError => Path.Combine(DataRoot, "update-error");

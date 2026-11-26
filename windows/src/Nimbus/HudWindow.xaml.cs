@@ -501,6 +501,14 @@ internal partial class HudWindow : Window
         }
     }
 
+    private void LeaveAlone_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        // commit the binding; the text box keeps focus until the user leaves it
+        ((System.Windows.Controls.TextBox)sender).GetBindingExpression(System.Windows.Controls.TextBox.TextProperty)?.UpdateSource();
+        e.Handled = true;
+    }
+
     private int gutterLines = -1;
 
     private void UpdateGutter()

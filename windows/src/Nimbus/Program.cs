@@ -22,6 +22,10 @@ internal static class Program
         {
             return SelfTest.Run(args[1]);
         }
+        if (args.Length >= 2 && args[0] == "--probe-network")
+        {
+            return SelfTest.ProbeNetwork(args[1]);
+        }
         if (args.Length >= 2 && args[0] == "--motion-bench")
         {
             return MotionBench.Run(args[1]);

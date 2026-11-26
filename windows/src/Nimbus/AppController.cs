@@ -113,6 +113,8 @@ internal sealed class AppController
         model.OpenDiagnostics = OpenDiagnostics;
         model.CopyDiagnostics = CopyDiagnostics;
         model.ToggleAutoPause = ToggleAutoPause;
+        model.LeaveAlone = State.Read(Paths.LeaveAlone);
+        model.LeaveAloneChanged = SaveLeaveAlone;
         model.AddBypass = () => AddListEntry(exclude: false);
         model.AddExclude = () => AddListEntry(exclude: true);
         model.RemoveUserEntry = RemoveListEntry;
@@ -638,18 +640,67 @@ internal sealed class AppController
         lastVpnProbe = DateTime.UtcNow;
         vpnProbing = true;
         // walking adapters and processes takes tens of ms: keep it off the UI thread so animations don't stall
-        Task.Run(() => (Match: SystemDiagnostics.DetectVpn(), Nic: LocalNetwork.Primary())).ContinueWith(t =>
+        Task.Run(() =>
+        {
+            var snapshot = Tunnels.Capture();
+            // new VPN servers and edits to the user's list reach winws through the file it watches
+            if (Engine.IsRunning) Tunnels.WriteLeaveAloneFile(snapshot.Endpoints);
+            return (Match: SystemDiagnostics.DetectVpn(), Nic: LocalNetwork.Primary(), Snapshot: snapshot);
+        }).ContinueWith(t =>
         {
             vpnProbing = false;
-            if (t.IsCompletedSuccessfully) ApplyVpn(t.Result.Match, t.Result.Nic.Name, t.Result.Nic.Address);
+            if (t.IsCompletedSuccessfully) ApplyVpn(t.Result.Match, t.Result.Nic.Name, t.Result.Nic.Address, t.Result.Snapshot);
         }, TaskScheduler.FromCurrentSynchronizationContext());
     }
 
-    private void ApplyVpn(VpnMatch match, string nicName, string nicAddress)
+    private string pendingPlan = "";
+    private DateTime lastPlanRestart = DateTime.MinValue;
+
+    /// <summary>
+    /// The WinDivert interface filter is fixed when winws starts, so the engine restarts when the physical
+    /// interface or the presence of a VPN adapter changes. A change has to hold for two probes to count.
+    /// </summary>
+    private void FollowNetwork(NetworkSnapshot snapshot)
     {
-        model.VpnWarning = match.IsVpn ? (match.Reason ?? "обнаружен VPN") : "";
+        var running = Engine.RunningPlan;
+        var wanted = snapshot.Plan.Signature;
+        if (!Engine.IsRunning || running.Length == 0 || running == wanted) { pendingPlan = ""; return; }
+        if (busy || testing || updating || pausedByVpn) return;
+        if (pendingPlan != wanted) { pendingPlan = wanted; return; }
+        if ((DateTime.UtcNow - lastPlanRestart).TotalSeconds < 15) return;
+        pendingPlan = "";
+        lastPlanRestart = DateTime.UtcNow;
+        Log.Write($"network changed ({running} → {wanted}), restarting the engine");
+        RunEngineOperation(() => Engine.Start(SelectedStrategy, SelectedIpset, gameFilterMode: SelectedGameFilter, network: snapshot));
+    }
+
+    private void SaveLeaveAlone(string text)
+    {
+        var parsed = LeaveAlone.Parse(text);
+        var normalized = string.Join(", ", parsed.Entries);
+        try
+        {
+            State.Write(Paths.LeaveAlone, normalized);
+        }
+        catch (Exception ex)
+        {
+            ShowError(ex.Message);
+            return;
+        }
+        if (parsed.Invalid.Count > 0) ShowNotice("Не распознал: " + string.Join(", ", parsed.Invalid.Take(3)), error: true);
+        if (normalized != text) model.LeaveAlone = normalized;
+        if (Engine.IsRunning) Task.Run(() => Tunnels.WriteLeaveAloneFile(Tunnels.Capture().Endpoints));
+    }
+
+    private void ApplyVpn(VpnMatch match, string nicName, string nicAddress, NetworkSnapshot snapshot)
+    {
+        var fullTunnel = match.IsVpn && VpnSignatures.IsFullTunnelClient(match.Reason);
+        // VPN traffic is left alone now, so a VPN is a note, not a warning; only a client that takes over every connection is
+        model.VpnWarning = fullTunnel ? (match.Reason ?? "WARP") + " · обход не сработает" : "";
+        model.VpnNote = match.IsVpn && !fullTunnel ? (match.Reason ?? "VPN") + " · не трогаем" : "";
         model.NetworkInterface = nicName;
         model.NetworkAddress = nicAddress;
+        FollowNetwork(snapshot);
         var auto = model.AutoPauseVpn;
         if (auto && match.IsVpn && Engine.IsRunning && !testing && !busy && !updating)
         {

@@ -27,6 +27,9 @@ internal static class Engine
         }
     }
 
+    /// <summary>Interface plan the running engine was started with; empty when unknown.</summary>
+    public static string RunningPlan => State.Read(Paths.EnginePlanFile);
+
     public static void Stop()
     {
         foreach (var process in Process.GetProcessesByName(ProcessName))
@@ -48,7 +51,7 @@ internal static class Engine
     }
 
     /// <summary>Starts winws with the given strategy; throws with the engine log tail when it does not stay up.</summary>
-    public static void Start(string strategyId, string ipsetMode, bool prepare = true, string? gameFilterMode = null)
+    public static void Start(string strategyId, string ipsetMode, bool prepare = true, string? gameFilterMode = null, NetworkSnapshot? network = null)
     {
         if (!StrategyCatalog.IsValidId(strategyId)) strategyId = StrategyCatalog.DefaultId;
         var gameFilter = GameFilterModes.Normalize(gameFilterMode);
@@ -68,8 +71,18 @@ internal static class Engine
         }
 
         var ipset = EngineArguments.IpsetPath(ipsetMode, Paths.Base, Paths.RuntimeLists);
-        var args = EngineArguments.Build(template, Paths.Base, Paths.RuntimeLists, ipset, gameFilterMode: gameFilter);
+        var snapshot = network ?? Tunnels.Capture();
+        Tunnels.WriteLeaveAloneFile(snapshot.Endpoints);
+        var args = EngineArguments.Build(template, Paths.Base, Paths.RuntimeLists, ipset, gameFilterMode: gameFilter,
+            wfIface: snapshot.Plan.PinnedIfIndex, leaveAlone: true);
         File.WriteAllLines(Paths.EngineArgs, args, new UTF8Encoding(false));
+        State.Write(Paths.EnginePlanFile, snapshot.Plan.Signature);
+        if (snapshot.Plan.TunnelIndexes.Count > 0)
+        {
+            Log.Append(Paths.EngineLog, $"VPN-адаптер «{snapshot.Plan.TunnelName}» не трогаем" +
+                (snapshot.Plan.PinnedIfIndex is { } pinned ? $", движок привязан к интерфейсу {pinned}" : "") +
+                (snapshot.Endpoints.Count > 0 ? $", исключено адресов: {snapshot.Endpoints.Count}" : ""));
+        }
 
         Log.TrimIfLarge(Paths.EngineLog);
         Log.Append(Paths.EngineLog, $"— запуск: {strategyId}, пресет {IpsetModes.Normalize(ipsetMode)}, игровой фильтр {GameFilterModes.Title(gameFilter)} —");

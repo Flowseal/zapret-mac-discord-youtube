@@ -93,7 +93,7 @@ internal sealed class HudModel : INotifyPropertyChanged
 
     private bool running, busy, testing, cancellingTest, updating, loginEnabled, canInstallUpdate, testEnabled = true, applyBestEnabled, noticeError, autoPauseVpn, updatingLists, testIsSmart;
     private string strategyName = "—", selectedStrategyId = "", ipsetMode = "none", gameFilterMode = "off", versionTitle = "Версия", testTitle = "Тест стратегий";
-    private string testProgress = "", testBest = "", logs = "", editorName = "", editorTitle = "", editorText = "", notice = "", vpnWarning = "", listInput = "", extraHost = "", diagnosticText = "";
+    private string testProgress = "", testBest = "", logs = "", editorName = "", editorTitle = "", editorText = "", notice = "", vpnWarning = "", vpnNote = "", leaveAlone = "", listInput = "", extraHost = "", diagnosticText = "";
     private HudPage page = HudPage.Main;
     private ServiceHealth discord = ServiceHealth.Unknown, youtube = ServiceHealth.Unknown;
     private IReadOnlyList<TestRow> testRows = Array.Empty<TestRow>();
@@ -150,7 +150,11 @@ internal sealed class HudModel : INotifyPropertyChanged
     public string Notice { get => notice; set { if (Set(ref notice, value)) Raise(nameof(HasNotice)); } }
     public bool NoticeError { get => noticeError; set { if (Set(ref noticeError, value)) Raise(nameof(NoticeGlyph)); } }
     public string VpnWarning { get => vpnWarning; set { if (Set(ref vpnWarning, value)) Raise(nameof(HasVpnWarning)); } }
+    /// <summary>Neutral VPN line ("WireGuard · не трогаем"): VPN traffic is left alone, so it is no warning.</summary>
+    public string VpnNote { get => vpnNote; set => Set(ref vpnNote, value); }
     public bool AutoPauseVpn { get => autoPauseVpn; set => Set(ref autoPauseVpn, value); }
+    /// <summary>"Не трогать адреса": committed when the field loses focus.</summary>
+    public string LeaveAlone { get => leaveAlone; set { if (Set(ref leaveAlone, value)) LeaveAloneChanged(value); } }
     public string ListInput { get => listInput; set { if (Set(ref listInput, value)) Raise(nameof(CanSubmitList)); } }
     public string ExtraHost { get => extraHost; set => Set(ref extraHost, value); }
     public IReadOnlyList<UserEntryRow> UserEntries { get => userEntries; set { if (Set(ref userEntries, value)) Raise(nameof(HasUserEntries)); } }
@@ -210,7 +214,7 @@ internal sealed class HudModel : INotifyPropertyChanged
     public bool DiscordOk => discord == ServiceHealth.Ok;
     public bool YouTubeOk => youtube == ServiceHealth.Ok;
     public string NetworkLabel => string.Join(" · ", new[] { networkInterface, networkAddress }.Where(x => x.Length > 0)) is { Length: > 0 } n ? n : "—";
-    public string VpnLabel => vpnWarning.Length > 0 ? vpnWarning : "не обнаружен";
+    public string VpnLabel => vpnWarning.Length > 0 ? vpnWarning : vpnNote.Length > 0 ? vpnNote : "не обнаружен";
     public string FooterStatusText => Phase switch
     {
         MarkState.Off => "Не активен",
@@ -400,6 +404,7 @@ internal sealed class HudModel : INotifyPropertyChanged
     public Action OpenDiagnostics = () => { };
     public Action CopyDiagnostics = () => { };
     public Action ToggleAutoPause = () => { };
+    public Action<string> LeaveAloneChanged = _ => { };
     public Action AddBypass = () => { };
     public Action AddExclude = () => { };
     public Action<UserEntryRow> RemoveUserEntry = _ => { };
