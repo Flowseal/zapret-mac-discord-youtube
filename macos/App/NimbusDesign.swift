@@ -1,4 +1,5 @@
 import AppKit
+import QuartzCore
 import SwiftUI
 
 // Nimbus design system: colors, the offset-N mark, motion and small controls.
@@ -347,9 +348,11 @@ private struct MarkShapeView: View, Animatable {
 }
 
 /// Drives the menu-bar glyph: springs between states at display rate, idles when settled.
-final class StatusGlyphAnimator {
+/// Ticks come from a display link on the status button, so frames line up with the screen's refresh
+/// (60 or 120 Hz) instead of drifting against it like a 60 Hz Timer did.
+final class StatusGlyphAnimator: NSObject {
     private weak var button: NSStatusBarButton?
-    private var timer: Timer?
+    private var link: CADisplayLink?
     private var current = MarkParams.target(.off)
     private var velocity = (fill: CGFloat(0), outline: CGFloat(0), gap: CGFloat(0))
     private var state: MarkState = .off
@@ -358,6 +361,7 @@ final class StatusGlyphAnimator {
 
     init(button: NSStatusBarButton) {
         self.button = button
+        super.init()
         button.image = MarkGeometry.templateImage(current)
         button.imagePosition = .imageOnly
     }
@@ -367,7 +371,7 @@ final class StatusGlyphAnimator {
         let previous = state
         state = next
         if next == .checking {
-            sweepStart = Date().timeIntervalSinceReferenceDate
+            sweepStart = CACurrentMediaTime()
         }
         if previous == .checking, next != .checking, let band = current.band {
             // continue the wipe from where the sweep band currently is
@@ -385,21 +389,23 @@ final class StatusGlyphAnimator {
     }
 
     private func start() {
-        guard timer == nil else { return }
-        lastTick = Date().timeIntervalSinceReferenceDate
-        let t = Timer(timeInterval: 1.0 / 60.0, repeats: true) { [weak self] _ in self?.tick() }
-        t.tolerance = 0.004
-        RunLoop.main.add(t, forMode: .common)
-        timer = t
+        guard link == nil, let button else { return }
+        lastTick = CACurrentMediaTime()
+        let l = button.displayLink(target: self, selector: #selector(displayTick(_:)))
+        l.add(to: .main, forMode: .common)
+        link = l
     }
 
     private func stop() {
-        timer?.invalidate()
-        timer = nil
+        link?.invalidate()
+        link = nil
     }
 
-    private func tick() {
-        let now = Date().timeIntervalSinceReferenceDate
+    @objc private func displayTick(_ link: CADisplayLink) {
+        tick(now: link.targetTimestamp)
+    }
+
+    private func tick(now: TimeInterval) {
         let dt = CGFloat(min(1.0 / 30.0, max(1.0 / 240.0, now - lastTick)))
         lastTick = now
         let target = MarkParams.target(state)
