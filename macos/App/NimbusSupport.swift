@@ -465,3 +465,72 @@ enum SystemInfo {
         return ""
     }
 }
+
+// MARK: - Release versions
+
+/// Semver-style order for release tags: 1.5.0 < 1.6.0-beta.1 < 1.6.0-beta.2 < 1.6.0-rc.1 < 1.6.0.
+/// A leading "v" and "+build" metadata are ignored. Same rules as Versioning.Compare on Windows.
+enum ReleaseVersion {
+    static func display(_ version: String) -> String {
+        version.first == "v" || version.first == "V" ? String(version.dropFirst()) : version
+    }
+
+    /// "v1.6.0-beta.1" -> "1.6.0", the part that goes into CFBundleShortVersionString.
+    static func numeric(_ version: String) -> String {
+        split(version).core
+    }
+
+    static func isNewer(_ candidate: String, than installed: String) -> Bool {
+        compare(candidate, installed) == .orderedDescending
+    }
+
+    /// Index of the release to offer from the GitHub /releases list: the highest version above `installed`
+    /// that is not a draft and has our asset. Pre-releases count, so 1.5.0 gets a beta and the beta gets the release.
+    static func pickUpdate(_ releases: [(tag: String, draft: Bool, hasAsset: Bool)], installed: String) -> Int? {
+        var best: Int?
+        for (index, release) in releases.enumerated() where !release.draft && release.hasAsset && isNewer(release.tag, than: installed) {
+            if let current = best, compare(release.tag, releases[current].tag) != .orderedDescending { continue }
+            best = index
+        }
+        return best
+    }
+
+    static func compare(_ a: String, _ b: String) -> ComparisonResult {
+        let lhs = split(a)
+        let rhs = split(b)
+        let core = compareParts(lhs.core.components(separatedBy: "."), rhs.core.components(separatedBy: "."), padWithZero: true)
+        if core != .orderedSame { return core }
+        switch (lhs.pre.isEmpty, rhs.pre.isEmpty) {
+        case (true, true): return .orderedSame
+        case (true, false): return .orderedDescending // 1.6.0 > 1.6.0-beta.1
+        case (false, true): return .orderedAscending
+        case (false, false):
+            return compareParts(lhs.pre.components(separatedBy: "."), rhs.pre.components(separatedBy: "."), padWithZero: false)
+        }
+    }
+
+    private static func split(_ version: String) -> (core: String, pre: String) {
+        var value = display(version.trimmingCharacters(in: .whitespaces))
+        if let plus = value.firstIndex(of: "+") { value = String(value[..<plus]) }
+        guard let dash = value.firstIndex(of: "-") else { return (value, "") }
+        return (String(value[..<dash]), String(value[value.index(after: dash)...]))
+    }
+
+    private static func compareParts(_ a: [String], _ b: [String], padWithZero: Bool) -> ComparisonResult {
+        for i in 0..<max(a.count, b.count) {
+            if !padWithZero && i >= a.count { return .orderedAscending }
+            if !padWithZero && i >= b.count { return .orderedDescending }
+            let sa = i < a.count ? a[i] : "0"
+            let sb = i < b.count ? b[i] : "0"
+            let result: ComparisonResult
+            switch (Int(sa), Int(sb)) {
+            case let (na?, nb?): result = na == nb ? .orderedSame : (na < nb ? .orderedAscending : .orderedDescending)
+            case (.some, nil): result = .orderedAscending // "beta.1" < "beta.x"
+            case (nil, .some): result = .orderedDescending
+            case (nil, nil): result = sa.caseInsensitiveCompare(sb)
+            }
+            if result != .orderedSame { return result }
+        }
+        return .orderedSame
+    }
+}

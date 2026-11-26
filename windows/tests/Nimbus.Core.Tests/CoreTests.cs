@@ -157,6 +157,97 @@ public class VersionTests
         Assert.Equal("1.3.0", Versioning.Bundled("v1.3.0-rc"));
         Assert.Equal("1.3.0-rc", Versioning.Display("V1.3.0-rc"));
     }
+
+    [Theory]
+    [InlineData("v1.6.0-beta.1", "1.5.0", true)]
+    [InlineData("v1.6.0", "1.6.0-beta.1", true)]
+    [InlineData("v1.6.0-beta.1", "1.6.0-beta.1", false)]
+    [InlineData("v1.6.0-beta.2", "1.6.0-beta.1", true)]
+    [InlineData("v1.6.0-beta.10", "1.6.0-beta.9", true)]
+    [InlineData("v1.6.0-rc.1", "1.6.0-beta.3", true)]
+    [InlineData("v1.6.0-beta.1", "1.6.0", false)]
+    [InlineData("v1.5.1", "1.6.0-beta.1", false)]
+    [InlineData("v1.6.0", "1.6.0+abc123", false)]
+    public void PreReleasesSortBeforeTheRelease(string tag, string installed, bool newer) =>
+        Assert.Equal(newer, Versioning.IsNewer(tag, installed));
+
+    [Fact]
+    public void CompareIsOrdered()
+    {
+        var sorted = new[] { "1.6.0", "1.5.0", "v1.6.0-rc.1", "1.6.0-beta.2", "1.6.0-beta.1", "1.6.0-beta", "1.6.1-beta.1" }
+            .OrderBy(v => v, Comparer<string>.Create(Versioning.Compare)).ToArray();
+        Assert.Equal(new[] { "1.5.0", "1.6.0-beta", "1.6.0-beta.1", "1.6.0-beta.2", "v1.6.0-rc.1", "1.6.0", "1.6.1-beta.1" }, sorted);
+    }
+}
+
+public class ReleaseFeedTests
+{
+    private const string Asset = "Nimbus-Windows-x64.exe";
+
+    private static string Release(string tag, bool prerelease = false, bool draft = false, params string[] assets) =>
+        $$"""{"tag_name":"{{tag}}","prerelease":{{(prerelease ? "true" : "false")}},"draft":{{(draft ? "true" : "false")}},"assets":[{{string.Join(",", assets.Select(a => $$"""{"name":"{{a}}","browser_download_url":"https://example.test/{{tag}}/{{a}}","digest":"sha256:{{tag}}"}"""))}}]}""";
+
+    private static string Feed(params string[] releases) => "[" + string.Join(",", releases) + "]";
+
+    private static readonly string[] AllAssets = { "Nimbus-macOS-universal.zip", Asset, "Nimbus-Windows-x64-lite.exe" };
+
+    [Fact]
+    public void StableUserGetsTheBeta()
+    {
+        var feed = Feed(Release("v1.6.0-beta.1", prerelease: true, assets: AllAssets), Release("v1.5.0", assets: AllAssets));
+        var pick = ReleaseFeed.PickUpdate(feed, Asset, "1.5.0");
+        Assert.NotNull(pick);
+        Assert.Equal("v1.6.0-beta.1", pick!.Tag);
+        Assert.Equal("https://example.test/v1.6.0-beta.1/" + Asset, pick.DownloadUrl);
+        Assert.Equal("sha256:v1.6.0-beta.1", pick.Digest);
+    }
+
+    [Fact]
+    public void BetaUserIsNotOfferedTheSameBetaAgain()
+    {
+        var feed = Feed(Release("v1.6.0-beta.1", prerelease: true, assets: AllAssets), Release("v1.5.0", assets: AllAssets));
+        Assert.Null(ReleaseFeed.PickUpdate(feed, Asset, "1.6.0-beta.1"));
+    }
+
+    [Fact]
+    public void BetaUserGetsTheStableRelease()
+    {
+        var feed = Feed(Release("v1.6.0", assets: AllAssets), Release("v1.6.0-beta.1", prerelease: true, assets: AllAssets));
+        Assert.Equal("v1.6.0", ReleaseFeed.PickUpdate(feed, Asset, "1.6.0-beta.1")?.Tag);
+    }
+
+    [Fact]
+    public void PicksTheHighestVersionNotTheNewestEntry()
+    {
+        // a 1.5.1 hotfix published after the beta must not hide the beta from 1.5.0 users
+        var feed = Feed(Release("v1.5.1", assets: AllAssets), Release("v1.6.0-beta.1", prerelease: true, assets: AllAssets));
+        Assert.Equal("v1.6.0-beta.1", ReleaseFeed.PickUpdate(feed, Asset, "1.5.0")?.Tag);
+        Assert.Null(ReleaseFeed.PickUpdate(feed, Asset, "1.6.0-beta.1"));
+    }
+
+    [Fact]
+    public void SkipsDraftsAndReleasesWithoutTheAsset()
+    {
+        var feed = Feed(
+            Release("v1.7.0", draft: true, assets: AllAssets),
+            Release("v1.6.1", assets: "Nimbus-macOS-universal.zip"),
+            Release("v1.6.0", assets: AllAssets));
+        Assert.Equal("v1.6.0", ReleaseFeed.PickUpdate(feed, Asset, "1.5.0")?.Tag);
+    }
+
+    [Fact]
+    public void LiteAssetIsMatchedExactly()
+    {
+        var feed = Feed(Release("v1.6.0", assets: AllAssets));
+        Assert.Equal("https://example.test/v1.6.0/Nimbus-Windows-x64-lite.exe", ReleaseFeed.PickUpdate(feed, "Nimbus-Windows-x64-lite.exe", "1.5.0")?.DownloadUrl);
+    }
+
+    [Fact]
+    public void UpToDateOrEmptyFeedReturnsNull()
+    {
+        Assert.Null(ReleaseFeed.PickUpdate("[]", Asset, "1.5.0"));
+        Assert.Null(ReleaseFeed.PickUpdate(Feed(Release("v1.5.0", assets: AllAssets)), Asset, "1.5.0"));
+    }
 }
 
 public class ScoringTests

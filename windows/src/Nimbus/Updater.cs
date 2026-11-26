@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.IO;
+using System.Reflection;
 using System.Net.Http;
 using System.Security.Cryptography;
 using System.Text.Json;
@@ -14,7 +15,11 @@ internal sealed record ReleaseInfo(string Tag, string DownloadUrl, string? Diges
 /// <summary>Same flow as the Mac updater: newest release of relocpe/Nimbus, its Windows asset, sha256 digest check, swap, relaunch.</summary>
 internal static class Updater
 {
+#if NIMBUS_LITE
+    public const string AssetName = "Nimbus-Windows-x64-lite.exe";
+#else
     public const string AssetName = "Nimbus-Windows-x64.exe";
+#endif
     private const string ReleasesUrl = "https://api.github.com/repos/relocpe/Nimbus/releases";
     public const string RepoUrl = "https://github.com/relocpe/Nimbus";
 
@@ -22,7 +27,15 @@ internal static class Updater
     {
         get
         {
-            var v = typeof(Updater).Assembly.GetName().Version;
+            // InformationalVersion keeps the pre-release part ("1.6.0-beta.1"), AssemblyVersion does not
+            var assembly = typeof(Updater).Assembly;
+            var info = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion;
+            if (!string.IsNullOrWhiteSpace(info))
+            {
+                var plus = info.IndexOf('+');
+                return plus >= 0 ? info[..plus] : info;
+            }
+            var v = assembly.GetName().Version;
             return v == null ? "—" : $"{v.Major}.{v.Minor}.{v.Build}";
         }
     }
@@ -39,20 +52,10 @@ internal static class Updater
     public static async Task<ReleaseInfo?> CheckAsync()
     {
         using var client = Client();
-        var json = await client.GetStringAsync($"{ReleasesUrl}?per_page=1&t={DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}");
-        using var doc = JsonDocument.Parse(json);
-        if (doc.RootElement.GetArrayLength() == 0) return null;
-        var latest = doc.RootElement[0];
-        var tag = latest.GetProperty("tag_name").GetString() ?? "";
-        if (!Versioning.IsNewer(tag, CurrentVersion)) return null;
-        foreach (var asset in latest.GetProperty("assets").EnumerateArray())
-        {
-            if (asset.GetProperty("name").GetString() != AssetName) continue;
-            var url = asset.GetProperty("browser_download_url").GetString();
-            var digest = asset.TryGetProperty("digest", out var d) && d.ValueKind == JsonValueKind.String ? d.GetString() : null;
-            return url == null ? null : new ReleaseInfo(tag, url, digest);
-        }
-        return null;
+        // pre-releases count too: 1.5.0 gets 1.6.0-beta.1, and the beta later gets 1.6.0
+        var json = await client.GetStringAsync($"{ReleasesUrl}?per_page=10&t={DateTimeOffset.UtcNow.ToUnixTimeMilliseconds()}");
+        var pick = ReleaseFeed.PickUpdate(json, AssetName, CurrentVersion);
+        return pick == null ? null : new ReleaseInfo(pick.Tag, pick.DownloadUrl, pick.Digest);
     }
 
     /// <summary>Downloads and verifies the new exe, swaps it in place and starts it. The caller exits afterwards.</summary>
@@ -107,7 +110,8 @@ internal static class Updater
         }
         var info = FileVersionInfo.GetVersionInfo(file);
         var version = $"{info.FileMajorPart}.{info.FileMinorPart}.{info.FileBuildPart}";
-        if (info.ProductName != "Nimbus" || version != Versioning.Bundled(release.Tag))
+        var product = info.ProductVersion ?? "";
+        if (info.ProductName != "Nimbus" || version != Versioning.Bundled(release.Tag) || Versioning.Compare(product, release.Tag) != 0)
         {
             throw new InvalidOperationException("Файл релиза содержит неподходящую версию приложения");
         }

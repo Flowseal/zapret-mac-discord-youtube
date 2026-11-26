@@ -13,8 +13,10 @@
     <StartupObject>Nimbus.Program</StartupObject>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>Assets\nimbus.ico</ApplicationIcon>
-    <!-- Keep in sync with macos/Info.plist CFBundleShortVersionString (CI checks this). -->
+    <!-- Keep in sync with macos/Info.plist NimbusVersion and the release tag without "v" (CI checks this).
+         FileVersion drops the "-beta.1" part, ProductVersion keeps it. -->
     <Version>1.5.0</Version>
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Product>Nimbus</Product>
     <Company>Nimbus</Company>
     <Description>Nimbus — zapret для Windows</Description>
@@ -26,6 +28,8 @@
     <!-- Compression is only valid for self-contained single-file bundles (NETSDK1176). -->
     <EnableCompressionInSingleFile Condition="'$(SelfContained)' != 'false'">true</EnableCompressionInSingleFile>
     <EnableCompressionInSingleFile Condition="'$(SelfContained)' == 'false'">false</EnableCompressionInSingleFile>
+    <!-- the lite exe updates itself from the lite asset -->
+    <DefineConstants Condition="'$(SelfContained)' == 'false'">$(DefineConstants);NIMBUS_LITE</DefineConstants>
     <DebugType>embedded</DebugType>
     <SatelliteResourceLanguages>ru;en</SatelliteResourceLanguages>
     <InvariantGlobalization>false</InvariantGlobalization>

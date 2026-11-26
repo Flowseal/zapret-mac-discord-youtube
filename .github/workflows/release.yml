@@ -39,6 +39,11 @@ jobs:
             echo "App version $APP_VERSION does not match tag $TAG"
             exit 1
           fi
+          FULL_VERSION=$(/usr/libexec/PlistBuddy -c 'Print :NimbusVersion' /tmp/Nimbus-Info.plist)
+          if [ "$FULL_VERSION" != "$(printf '%s' "$TAG" | sed -E 's/^[vV]//')" ]; then
+            echo "NimbusVersion $FULL_VERSION does not match tag $TAG"
+            exit 1
+          fi
           lipo -archs build/macos/Nimbus.app/Contents/MacOS/Nimbus
           lipo build/macos/Nimbus.app/Contents/MacOS/Nimbus -verify_arch x86_64
           lipo build/macos/Nimbus.app/Contents/MacOS/Nimbus -verify_arch arm64
@@ -76,6 +81,8 @@ jobs:
             $app = "$($info.FileMajorPart).$($info.FileMinorPart).$($info.FileBuildPart)"
             $tag = ($env:TAG -replace '^[vV]', '') -replace '-.*$', ''
             if ($app -ne $tag) { throw "$name version $app does not match tag $env:TAG" }
+            $product = ($info.ProductVersion -replace '\+.*$', '')
+            if ($product -ne ($env:TAG -replace '^[vV]', '')) { throw "$name product version $product does not match tag $env:TAG" }
           }
           $p = Start-Process -FilePath dist/Nimbus-Windows-x64.exe -ArgumentList '--self-test', "$PWD\self-test.txt" -Wait -PassThru
           Get-Content self-test.txt

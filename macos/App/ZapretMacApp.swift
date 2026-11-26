@@ -21,10 +21,12 @@ struct Strategy {
 
 struct GitHubRelease: Decodable {
     let tagName: String
+    let draft: Bool?
     let assets: [GitHubReleaseAsset]
 
     enum CodingKeys: String, CodingKey {
         case tagName = "tag_name"
+        case draft
         case assets
     }
 }
@@ -578,8 +580,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    /// Full version with the pre-release part ("1.6.0-beta.1"). CFBundleShortVersionString only holds "1.6.0".
     private var currentVersion: String {
-        Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
+        if let full = Bundle.main.object(forInfoDictionaryKey: "NimbusVersion") as? String, !full.isEmpty { return full }
+        return Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "—"
     }
 
     private func displayVersion(_ version: String) -> String {
@@ -587,13 +591,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func bundledVersion(_ releaseVersion: String) -> String {
-        displayVersion(releaseVersion).split(separator: "-", maxSplits: 1).first.map(String.init) ?? displayVersion(releaseVersion)
+        ReleaseVersion.numeric(releaseVersion)
     }
 
     private func checkForUpdate() {
         if checkingForUpdate || updating { return }
         checkingForUpdate = true
-        let url = URL(string: releaseURL.absoluteString + "?t=\(Int(Date().timeIntervalSince1970 * 1000))&per_page=1")!
+        let url = URL(string: releaseURL.absoluteString + "?t=\(Int(Date().timeIntervalSince1970 * 1000))&per_page=10")!
         var request = URLRequest(url: url, timeoutInterval: 12)
         request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
         request.setValue("Nimbus", forHTTPHeaderField: "User-Agent")
@@ -604,12 +608,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let response = response as? HTTPURLResponse,
                response.statusCode == 200,
                let data,
-               let decoded = try? JSONDecoder().decode([GitHubRelease].self, from: data),
-               let latest = decoded.first {
+               let decoded = try? JSONDecoder().decode([GitHubRelease].self, from: data) {
                 completed = true
-                if latest.assets.contains(where: { $0.name == self.releaseAssetName }),
-                   self.isNewer(latest.tagName, than: self.currentVersion) {
-                    release = latest
+                // pre-releases count too: 1.5.0 gets 1.6.0-beta.1, and the beta later gets 1.6.0
+                let candidates = decoded.map { item in
+                    (tag: item.tagName, draft: item.draft ?? false, hasAsset: item.assets.contains { $0.name == self.releaseAssetName })
+                }
+                if let index = ReleaseVersion.pickUpdate(candidates, installed: self.currentVersion) {
+                    release = decoded[index]
                 }
             }
             DispatchQueue.main.async {
@@ -620,10 +626,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.refreshHUD()
             }
         }.resume()
-    }
-
-    private func isNewer(_ candidate: String, than installed: String) -> Bool {
-        bundledVersion(candidate).compare(displayVersion(installed), options: [.numeric, .caseInsensitive]) == .orderedDescending
     }
 
     @objc private func installUpdate() {
@@ -708,7 +710,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
               let bundle = Bundle(url: app),
               bundle.bundleIdentifier == Bundle.main.bundleIdentifier,
               let bundledVersion = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String,
-              displayVersion(bundledVersion) == self.bundledVersion(version) else {
+              displayVersion(bundledVersion) == self.bundledVersion(version),
+              ReleaseVersion.compare((bundle.object(forInfoDictionaryKey: "NimbusVersion") as? String) ?? bundledVersion, version) == .orderedSame else {
             throw NSError(domain: "Nimbus.Update", code: 4, userInfo: [NSLocalizedDescriptionKey: "Архив релиза содержит неподходящую версию приложения"])
         }
         try runProcess("/usr/bin/codesign", arguments: ["--verify", "--deep", "--strict", app.path])
