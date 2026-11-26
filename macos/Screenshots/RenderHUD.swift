@@ -44,8 +44,8 @@ struct RenderHUD {
             m.networkAddress = "192.168.1.24"
             m.vpnNote = "туннель utun4 · не трогаем"
             m.leaveAlone = "203.0.113.7, 203.0.113.0/24"
-            m.appVersion = "1.6.0-beta.5"
-            m.versionTitle = "Версия 1.6.0-beta.5"
+            m.appVersion = "1.6.0"
+            m.versionTitle = "Версия 1.6.0"
         }
         let logText = """
         11:24:01 запуск utunws · стратегия general (ALT3)
