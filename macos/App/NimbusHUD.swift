@@ -77,6 +77,12 @@ struct EditorCaret: Equatable {
 }
 
 final class HUDModel: ObservableObject {
+    /// Writes only real changes. Every @Published write re-renders the panel, even with the same value,
+    /// and the once-a-second refresh used to restart the body mid-animation.
+    func update<T: Equatable>(_ key: ReferenceWritableKeyPath<HUDModel, T>, _ value: T) {
+        if self[keyPath: key] != value { self[keyPath: key] = value }
+    }
+
     @Published var running = false
     @Published var busy = false
     @Published var testing = false

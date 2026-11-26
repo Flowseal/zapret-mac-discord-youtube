@@ -14,7 +14,7 @@ private func executeWithPrivileges(
     _ pipe: UnsafeMutablePointer<UnsafeMutablePointer<FILE>?>
 ) -> OSStatus
 
-struct Strategy {
+struct Strategy: Equatable {
     let id: String
     let name: String
 }
@@ -74,6 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var glyph: StatusGlyphAnimator?
     private var engineWasRunning = false
     private var noticeTimer: Timer?
+    private var loginChecked = false
     private var pausedByVpn = false
     private var lastVpnProbe = Date.distantPast
     private var startingSmartTest = false
@@ -203,65 +204,69 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let running = isRunning()
         let selectedStrategy = readState(from: dataRoot.appendingPathComponent("selected-strategy"))
         let selectedIPSet = readState(from: dataRoot.appendingPathComponent("ipset-mode"))
-        hudModel.running = running
-        hudModel.busy = busy
-        if !busy { hudModel.switchIntent = nil }
-        hudModel.appVersion = displayVersion(currentVersion)
+        hudModel.update(\.running, running)
+        hudModel.update(\.busy, busy)
+        if !busy { hudModel.update(\.switchIntent, nil) }
+        hudModel.update(\.appVersion, displayVersion(currentVersion))
         if running != engineWasRunning || (running && hudModel.engineStarted == nil) {
             engineWasRunning = running
-            hudModel.engineStarted = running ? (EngineClock.engineStartDate() ?? Date()) : nil
-            if !running { hudModel.latencySamples = [] }
+            hudModel.update(\.engineStarted, running ? (EngineClock.engineStartDate() ?? Date()) : nil)
+            if !running, !hudModel.latencySamples.isEmpty { hudModel.latencySamples = [] }
         }
-        hudModel.testing = testing
-        hudModel.cancellingTest = cancellingTest
-        hudModel.updating = updating
-        hudModel.strategies = strategies
-        hudModel.selectedStrategyID = selectedStrategy
-        hudModel.strategyName = strategies.first(where: { $0.id == selectedStrategy })?.name ?? selectedStrategy
-        hudModel.ipsetMode = selectedIPSet.isEmpty ? "none" : selectedIPSet
-        hudModel.loginEnabled = SMAppService.mainApp.status == .enabled
+        hudModel.update(\.testing, testing)
+        hudModel.update(\.cancellingTest, cancellingTest)
+        hudModel.update(\.updating, updating)
+        hudModel.update(\.strategies, strategies)
+        hudModel.update(\.selectedStrategyID, selectedStrategy)
+        hudModel.update(\.strategyName, strategies.first(where: { $0.id == selectedStrategy })?.name ?? selectedStrategy)
+        hudModel.update(\.ipsetMode, selectedIPSet.isEmpty ? "none" : selectedIPSet)
+        if hud.isVisible || !loginChecked {
+            // an XPC round trip to smd: only while someone can see the switch
+            loginChecked = true
+            hudModel.update(\.loginEnabled, SMAppService.mainApp.status == .enabled)
+        }
         loadTestLive()
         if testing || hud.isVisible {
             probeServices(force: false)
         }
-        hudModel.applyBestEnabled = !testing && !busy && hudModel.testRows.contains(where: { $0.isBest })
+        hudModel.update(\.applyBestEnabled, !testing && !busy && hudModel.testRows.contains(where: { $0.isBest }))
         if testing {
             let progress = readState(from: dataRoot.appendingPathComponent("strategy-test-progress"))
-            hudModel.testProgress = progress
+            hudModel.update(\.testProgress, progress)
             if cancellingTest {
-                hudModel.testTitle = "Остановка теста…"
+                hudModel.update(\.testTitle, "Остановка теста…")
             } else {
-                hudModel.testTitle = progress.isEmpty ? "Остановить тест" : "Остановить"
+                hudModel.update(\.testTitle, progress.isEmpty ? "Остановить тест" : "Остановить")
             }
-            hudModel.testEnabled = !cancellingTest
+            hudModel.update(\.testEnabled, !cancellingTest)
         } else {
-            hudModel.testTitle = hudModel.testRows.isEmpty ? "Тест стратегий" : "Повторить тест"
-            hudModel.testEnabled = !busy
+            hudModel.update(\.testTitle, hudModel.testRows.isEmpty ? "Тест стратегий" : "Повторить тест")
+            hudModel.update(\.testEnabled, !busy)
         }
         if hudModel.page == .logs {
             loadLogs()
         }
         if hudModel.page == .lists {
-            hudModel.lists = listInfos()
-            hudModel.userEntries = loadUserEntries()
+            hudModel.update(\.lists, listInfos())
+            hudModel.update(\.userEntries, loadUserEntries())
         }
-        hudModel.autoPauseVpn = readState(from: dataRoot.appendingPathComponent("vpn-autopause")) == "1"
+        hudModel.update(\.autoPauseVpn, readState(from: dataRoot.appendingPathComponent("vpn-autopause")) == "1")
         refreshVpnState()
         if updating {
-            hudModel.versionTitle = "Установка обновления…"
-            hudModel.canInstallUpdate = false
+            hudModel.update(\.versionTitle, "Установка обновления…")
+            hudModel.update(\.canInstallUpdate, false)
         } else if let release = availableRelease {
-            hudModel.versionTitle = "Обновить до \(displayVersion(release.tagName))"
-            hudModel.canInstallUpdate = !busy && !testing
+            hudModel.update(\.versionTitle, "Обновить до \(displayVersion(release.tagName))")
+            hudModel.update(\.canInstallUpdate, !busy && !testing)
         } else {
-            hudModel.versionTitle = "Версия \(currentVersion)"
-            hudModel.canInstallUpdate = false
+            hudModel.update(\.versionTitle, "Версия \(currentVersion)")
+            hudModel.update(\.canInstallUpdate, false)
         }
         if !running {
-            hudModel.discord = .off
-            hudModel.youtube = .off
-            hudModel.discordMs = nil
-            hudModel.youtubeMs = nil
+            hudModel.update(\.discord, .off)
+            hudModel.update(\.youtube, .off)
+            hudModel.update(\.discordMs, nil)
+            hudModel.update(\.youtubeMs, nil)
         }
         updateStatusGlyph()
         let layoutKey = "\(hudModel.page)|\(testing)|\(hudModel.testRows.count)|\(hudModel.testBest)|\(hudModel.testProgress)|\(hudModel.notice)|\(hudModel.lists.count)|\(hudModel.editorName)|\(hudModel.logLines.count)|\(hudModel.diagnosticsRunning)|\(hudModel.paletteOpen)|\(hudModel.vpnWarning)|\(hudModel.userEntries.count)|\(hudModel.diagnostics.count)|\(hudModel.updatingLists)"
@@ -273,7 +278,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func loadTestLive() {
         let best = readState(from: dataRoot.appendingPathComponent("strategy-test-best"))
-        hudModel.testBest = best
+        hudModel.update(\.testBest, best)
         let live = readState(from: dataRoot.appendingPathComponent("strategy-test-live.tsv"))
         let bestNames = best
         var rows: [TestRow] = []
@@ -284,17 +289,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let isBest = !bestNames.isEmpty && bestNames.contains(fields[0]) && bestNames.hasPrefix("Лучшая:")
             rows.append(TestRow(name: fields[0], score: score, isBest: isBest))
         }
-        hudModel.testRows = rows
+        hudModel.update(\.testRows, rows)
         if !testing {
-            hudModel.testProgress = ""
+            hudModel.update(\.testProgress, "")
         }
     }
 
     private func probeServices(force: Bool) {
         let running = isRunning()
         if !running {
-            hudModel.discord = .off
-            hudModel.youtube = .off
+            hudModel.update(\.discord, .off)
+            hudModel.update(\.youtube, .off)
             return
         }
         if !force, Date().timeIntervalSince(lastServiceProbe) < 12 { return }
@@ -304,16 +309,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         updateStatusGlyph()
         probeURL("https://discord.com/") { [weak self] ok, ms in
             guard let self else { return }
-            self.hudModel.discord = ok ? .ok : .bad
-            self.hudModel.discordMs = ok ? ms : nil
-            self.hudModel.lastProbe = Date()
+            self.hudModel.update(\.discord, ok ? .ok : .bad)
+            self.hudModel.update(\.discordMs, ok ? ms : nil)
+            self.hudModel.update(\.lastProbe, Date())
             self.updateStatusGlyph()
         }
         probeURL("https://www.youtube.com/") { [weak self] ok, ms in
             guard let self else { return }
-            self.hudModel.youtube = ok ? .ok : .bad
-            self.hudModel.youtubeMs = ok ? ms : nil
-            self.hudModel.lastProbe = Date()
+            self.hudModel.update(\.youtube, ok ? .ok : .bad)
+            self.hudModel.update(\.youtubeMs, ok ? ms : nil)
+            self.hudModel.update(\.lastProbe, Date())
             // the history chart follows the slower, video side of the bypass
             var samples = self.hudModel.latencySamples
             samples.append(ok ? Double(ms) : .nan)
@@ -330,8 +335,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func refreshNetwork() {
         let interface = VpnProbe.defaultInterface()
-        hudModel.networkInterface = interface
-        hudModel.networkAddress = SystemInfo.ipv4Address(of: interface)
+        hudModel.update(\.networkInterface, interface)
+        hudModel.update(\.networkAddress, SystemInfo.ipv4Address(of: interface))
     }
 
     private func probeURL(_ raw: String, done: @escaping (Bool, Int) -> Void) {
@@ -997,7 +1002,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         lastVpnProbe = now
         refreshNetwork()
         let warning = VpnProbe.warning(for: VpnProbe.defaultInterface())
-        hudModel.vpnWarning = warning ?? ""
+        hudModel.update(\.vpnWarning, warning ?? "")
         let auto = hudModel.autoPauseVpn
         if auto, warning != nil, isRunning(), !testing, !busy, !updating {
             pausedByVpn = true
