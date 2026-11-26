@@ -17,13 +17,29 @@ namespace Nimbus;
 /// </summary>
 internal static class MotionBench
 {
+    /// <summary>The real screen, so the shot shows what DWM composited (transparent margin, shadow).</summary>
+    private static void Snapshot(string path)
+    {
+        try
+        {
+            var b = System.Windows.Forms.SystemInformation.VirtualScreen;
+            using var bmp = new System.Drawing.Bitmap(b.Width, b.Height);
+            using (var g = System.Drawing.Graphics.FromImage(bmp)) g.CopyFromScreen(b.Left, b.Top, 0, 0, bmp.Size);
+            bmp.Save(path, System.Drawing.Imaging.ImageFormat.Png);
+        }
+        catch
+        {
+            // no desktop to capture
+        }
+    }
+
     public static int Run(string reportPath)
     {
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         Motion.UseDisplayRate();
         Theme.Apply(app.Resources);
         var report = new StringBuilder();
-        report.AppendLine($"Nimbus {Updater.CurrentVersion}, render tier {RenderCapability.Tier >> 16}");
+        report.AppendLine($"Nimbus {Updater.CurrentVersion}, render tier {RenderCapability.Tier >> 16}, window {(Backdrop.UseComposition ? "composed" : "layered")}");
 
         // work the refresh timer does on the UI thread
         foreach (var (name, probe) in new (string, Action)[]
@@ -84,6 +100,7 @@ internal static class MotionBench
             CompositionTarget.Rendering += onFrame;
             await Task.Delay(500);
             await Step("open", window.ShowHud, 900);
+            Snapshot(Path.ChangeExtension(reportPath, ".png"));
             await Step("page-more", () => model.Page = HudPage.More, 800);
             await Step("page-back", () => model.Page = HudPage.Main, 800);
             await Step("palette-open", model.OpenPalette, 700);
