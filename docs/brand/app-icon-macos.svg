@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1D1E23"/><stop offset="1" stop-color="#09090B"/></linearGradient>
+    <linearGradient id="d" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#A3A9FF"/><stop offset="1" stop-color="#6A73F5"/></linearGradient>
+    <radialGradient id="hl" cx=".5" cy="0" r=".9"><stop offset="0" stop-color="#fff" stop-opacity=".10"/><stop offset=".6" stop-color="#fff" stop-opacity="0"/></radialGradient>
+    <filter id="glow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="28"/></filter>
+  </defs>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#bg)"/>
+  <rect x="100" y="100" width="824" height="824" rx="185" fill="url(#hl)"/>
+  <rect x="101.5" y="101.5" width="821" height="821" rx="183.5" fill="none" stroke="#fff" stroke-opacity=".10" stroke-width="3"/>
+  <g transform="translate(272 272) scale(30)">
+    <polygon points="2,4 5,4 14,12 11,12" fill="#6A73F5" filter="url(#glow)" opacity=".55"/>
+    <rect x="2" y="4" width="3" height="10" fill="#F1F2F4"/><rect x="11" y="2" width="3" height="10" fill="#F1F2F4"/>
+    <polygon points="2,4 5,4 14,12 11,12" fill="url(#d)"/>
+  </g>
+</svg>

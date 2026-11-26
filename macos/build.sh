@@ -23,6 +23,7 @@ SWIFT_FLAGS="-O -parse-as-library -sdk $SDK -framework AppKit -framework SwiftUI
 "$SWIFTC" $SWIFT_FLAGS -target arm64-apple-macos14.0 $SWIFT_SOURCES -o "$BUILD/Nimbus-arm64"
 /usr/bin/lipo -create "$BUILD/Nimbus-x86_64" "$BUILD/Nimbus-arm64" -output "$MACOS/Nimbus"
 /bin/cp "$ROOT/macos/Info.plist" "$CONTENTS/Info.plist"
+/bin/cp "$ROOT/macos/AppIcon.icns" "$RESOURCES/AppIcon.icns"
 /usr/bin/ditto "$ROOT/macos/Payload" "$RESOURCES/Payload"
 /bin/cp "$ROOT/nfq/utunws" "$RESOURCES/Payload/bin/utunws"
 /bin/chmod 755 "$MACOS/Nimbus" "$RESOURCES/Payload/bin/utunws" "$RESOURCES/Payload/install.sh" "$RESOURCES/Payload/run.sh" "$RESOURCES/Payload/restart.sh" "$RESOURCES/Payload/stop.sh" "$RESOURCES/Payload/test-strategies.sh" "$RESOURCES/Payload/update-app.sh" "$RESOURCES/Payload/watchdog.sh" "$RESOURCES/Payload/diagnose.sh"
