@@ -582,6 +582,73 @@ struct RowIcon: View {
     }
 }
 
+/// Drop shadow drawn by Core Animation from a fixed rounded-rect path. SwiftUI's `.shadow` blurs the
+/// view's own pixels, so it was recomputed on every frame of every animation inside the panel;
+/// this one is only redrawn when the size changes.
+struct ShapeShadow: NSViewRepresentable {
+    struct Layer {
+        var opacity: Float
+        var radius: CGFloat
+        var y: CGFloat
+    }
+
+    var cornerRadius: CGFloat
+    var layers: [Layer]
+
+    func makeNSView(context: Context) -> ShadowHost { ShadowHost() }
+
+    func updateNSView(_ view: ShadowHost, context: Context) {
+        view.configure(cornerRadius: cornerRadius, layers: layers)
+    }
+}
+
+final class ShadowHost: NSView {
+    private var cornerRadius: CGFloat = 0
+    private var shadows: [CALayer] = []
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        wantsLayer = true
+        layer?.masksToBounds = false
+    }
+
+    required init?(coder: NSCoder) { nil }
+
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+
+    func configure(cornerRadius: CGFloat, layers: [ShapeShadow.Layer]) {
+        self.cornerRadius = cornerRadius
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        while shadows.count < layers.count {
+            let l = CALayer()
+            l.shadowColor = NSColor.black.cgColor
+            layer?.addSublayer(l)
+            shadows.append(l)
+        }
+        for (l, spec) in zip(shadows, layers) {
+            l.shadowOpacity = spec.opacity
+            l.shadowRadius = spec.radius
+            l.shadowOffset = CGSize(width: 0, height: -spec.y) // AppKit layers are y-up
+        }
+        CATransaction.commit()
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        let r = min(cornerRadius, bounds.width / 2, bounds.height / 2)
+        let path = CGPath(roundedRect: bounds, cornerWidth: r, cornerHeight: r, transform: nil)
+        for l in shadows {
+            l.frame = bounds
+            l.shadowPath = path
+        }
+        CATransaction.commit()
+    }
+}
+
 /// Visual effect material behind the panel tint.
 struct PanelMaterial: NSViewRepresentable {
     func makeNSView(context: Context) -> NSVisualEffectView {

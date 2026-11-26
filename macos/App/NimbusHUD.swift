@@ -754,9 +754,10 @@ struct NimbusHUDView: View {
         )
         .clipShape(RoundedRectangle(cornerRadius: NB.radius, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: NB.radius, style: .continuous).strokeBorder(NB.line2, lineWidth: 1))
-        .compositingGroup()
-        .shadow(color: .black.opacity(0.28), radius: 16, y: 10)
-        .shadow(color: .black.opacity(0.12), radius: 3, y: 1)
+        .background(ShapeShadow(cornerRadius: NB.radius, layers: [
+            .init(opacity: 0.28, radius: 16, y: 10),
+            .init(opacity: 0.12, radius: 3, y: 1),
+        ]))
         .foregroundStyle(NB.t1)
         .font(NB.body)
     }
@@ -2232,7 +2233,7 @@ struct CommandBar: View {
         .background(NB.solid)
         .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
         .overlay(RoundedRectangle(cornerRadius: 10, style: .continuous).strokeBorder(NB.line2, lineWidth: 1))
-        .shadow(color: .black.opacity(0.35), radius: 18, y: 12)
+        .background(ShapeShadow(cornerRadius: 10, layers: [.init(opacity: 0.35, radius: 18, y: 12)]))
         .animation(Motion.snappy, value: model.paletteQuery)
         .onAppear { DispatchQueue.main.async { focused = true } }
     }
