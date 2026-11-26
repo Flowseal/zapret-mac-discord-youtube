@@ -809,7 +809,6 @@ private struct PaletteMorph: ViewModifier {
         content
             .scaleEffect(0.97 + 0.03 * progress, anchor: .bottomTrailing)
             .offset(y: 6 * (1 - progress))
-            .blur(radius: 6 * (1 - progress))
             .opacity(progress)
     }
 }
