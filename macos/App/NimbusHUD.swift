@@ -1567,7 +1567,7 @@ struct MorePage: View {
             }
             if showLeaveAlone {
                 PanelInput(placeholder: "Не трогать адреса", text: $model.leaveAlone, icon: "eye.slash", mono: true, onSubmit: model.commitLeaveAlone)
-                    .help("IP или сеть через запятую, например 203.0.113.7, 10.8.0.0/16")
+                    .help("IP или сеть через запятую, например 203.0.113.7, 203.0.113.0/24")
                     .padding(.horizontal, 10)
                     .padding(.vertical, 4)
                     .reveal(13)

@@ -802,7 +802,7 @@
                                     <TextBlock DockPanel.Dock="Left" Style="{StaticResource Glyph}" Text="&#xE72E;" Foreground="{DynamicResource T3Brush}" Margin="0,0,8,0" />
                                     <Grid>
                                         <TextBlock Text="Не трогать адреса" Style="{StaticResource Placeholder}" Visibility="{Binding Text, ElementName=LeaveAloneBox, Converter={StaticResource EmptyVis}}" />
-                                        <TextBox x:Name="LeaveAloneBox" Style="{StaticResource Field}" FontFamily="{StaticResource MonoFont}" FontSize="12.5" ToolTip="IP или сеть через запятую, например 203.0.113.7, 10.8.0.0/16" Text="{Binding LeaveAlone, UpdateSourceTrigger=LostFocus}" KeyDown="LeaveAlone_KeyDown" />
+                                        <TextBox x:Name="LeaveAloneBox" Style="{StaticResource Field}" FontFamily="{StaticResource MonoFont}" FontSize="12.5" ToolTip="IP или сеть через запятую, например 203.0.113.7, 203.0.113.0/24" Text="{Binding LeaveAlone, UpdateSourceTrigger=LostFocus}" KeyDown="LeaveAlone_KeyDown" />
                                     </Grid>
                                 </DockPanel>
                             </Border>

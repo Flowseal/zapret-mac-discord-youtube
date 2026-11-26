@@ -38,7 +38,7 @@ internal static class Screens
             m.NetworkInterface = "Wi-Fi";
             m.NetworkAddress = "192.168.1.24";
             m.VpnNote = "WireGuard · не трогаем";
-            m.LeaveAlone = "203.0.113.7, 10.8.0.0/16";
+            m.LeaveAlone = "203.0.113.7, 203.0.113.0/24";
         }
         foreach (var light in new[] { false, true })
         {

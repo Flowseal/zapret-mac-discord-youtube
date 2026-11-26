@@ -43,7 +43,7 @@ struct RenderHUD {
             m.networkInterface = "en0"
             m.networkAddress = "192.168.1.24"
             m.vpnNote = "туннель utun4 · не трогаем"
-            m.leaveAlone = "203.0.113.7, 10.8.0.0/16"
+            m.leaveAlone = "203.0.113.7, 203.0.113.0/24"
             m.appVersion = "1.6.0-beta.5"
             m.versionTitle = "Версия 1.6.0-beta.5"
         }
