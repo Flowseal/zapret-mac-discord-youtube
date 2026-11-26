@@ -60,19 +60,19 @@ struct RenderHUD {
         for dark in [true, false] {
             app.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
             let theme = dark ? "dark" : "light"
-            shoot("\(out)/macos-\(theme)-main", dark: dark) { m in base(m) }
-            shoot("\(out)/macos-\(theme)-main-problem", dark: dark) { m in
+            shoot("\(out)/macos-\(theme)-main", dark: dark, setup: { m in base(m) })
+            shoot("\(out)/macos-\(theme)-main-problem", dark: dark, setup: { m in
                 base(m)
                 m.youtube = .bad
                 m.youtubeMs = nil
-            }
-            shoot("\(out)/macos-\(theme)-main-off", dark: dark) { m in
+            })
+            shoot("\(out)/macos-\(theme)-main-off", dark: dark, setup: { m in
                 base(m)
                 m.running = false
                 m.discord = .off
                 m.youtube = .off
-            }
-            shoot("\(out)/macos-\(theme)-more", dark: dark) { m in
+            })
+            shoot("\(out)/macos-\(theme)-more", dark: dark, setup: { m in
                 base(m)
                 m.page = .more
                 m.testRows = [
@@ -83,13 +83,13 @@ struct RenderHUD {
                 m.testBest = "Лучшая: general (ALT3) (23/27)"
                 m.applyBestEnabled = true
                 m.testTitle = "Повторить тест"
-            }
-            shoot("\(out)/macos-\(theme)-logs", dark: dark) { m in
+            })
+            shoot("\(out)/macos-\(theme)-logs", dark: dark, setup: { m in
                 base(m)
                 m.page = .logs
                 m.logLines = LogParser.parse(logText, source: "nimbus") + LogParser.parse(engineText, source: "engine", startID: 100)
-            }
-            shoot("\(out)/macos-\(theme)-lists", dark: dark) { m in
+            })
+            shoot("\(out)/macos-\(theme)-lists", dark: dark, setup: { m in
                 base(m)
                 m.page = .lists
                 m.userEntries = [
@@ -101,15 +101,15 @@ struct RenderHUD {
                     ListInfo(id: "list-google.txt", title: "list-google.txt", detail: "", badge: "", external: false, lines: 491),
                     ListInfo(id: "ipset-all.txt", title: "ipset-all.txt", detail: "", badge: "", external: true, lines: 52113),
                 ]
-            }
-            shoot("\(out)/macos-\(theme)-editor", dark: dark) { m in
+            })
+            shoot("\(out)/macos-\(theme)-editor", dark: dark, setup: { m in
                 base(m)
                 m.page = .editor
                 m.editorName = "list-general.txt"
                 m.editorOriginal = "# Nimbus — основной список обхода\n\ndiscord.com\ndiscord.gg\nyoutube.com\n"
                 m.editorText = m.editorOriginal + "claude.ai\n"
-            }
-            shoot("\(out)/macos-\(theme)-diagnostics", dark: dark) { m in
+            })
+            shoot("\(out)/macos-\(theme)-diagnostics", dark: dark, setup: { m in
                 base(m)
                 m.page = .diagnostics
                 m.diagnosticsElapsed = 0.84
@@ -120,48 +120,63 @@ struct RenderHUD {
                     DiagnosticItem(level: "OK", name: "Списки", detail: "обновлены 2 ч назад"),
                 ]
                 m.diagnosticText = "report"
-            }
-            shoot("\(out)/macos-\(theme)-cmdk", dark: dark) { m in
+            })
+            shoot("\(out)/macos-\(theme)-cmdk", dark: dark, setup: { m in base(m) }, then: { m in m.openPalette() })
+            // window follows the content when pages change while open
+            shoot("\(out)/macos-\(theme)-main-to-logs", dark: dark, setup: { m in base(m); m.logLines = LogParser.parse(logText, source: "nimbus") },
+                  then: { m in m.page = .logs })
+            shoot("\(out)/macos-\(theme)-editor-to-main", dark: dark, setup: { m in
                 base(m)
-                m.paletteOpen = true
-            }
+                m.page = .editor
+                m.editorName = "list-general.txt"
+                m.editorText = "discord.com\n"
+            }, then: { m in m.page = .main })
         }
         exit(0)
     }
 
-    static func shoot(_ path: String, dark: Bool, setup: (HUDModel) -> Void) {
+    /// Opens the real HUDController panel under a fake status item at the top of the main screen,
+    /// optionally runs `then` (page switch, ⌘K) and captures the whole window, so the shot shows
+    /// exactly what the window size and position give on a real Mac.
+    static func shoot(_ path: String, dark: Bool, setup: (HUDModel) -> Void, then: ((HUDModel) -> Void)? = nil) {
         let model = HUDModel()
         setup(model)
-        let view = NimbusHUDView(model: model)
-        let hosting = NSHostingView(rootView: view)
-        hosting.layoutSubtreeIfNeeded()
-        let size = hosting.fittingSize
-        // a plain desktop-like backdrop under the translucent panel
-        let backdrop = NSView(frame: NSRect(origin: .zero, size: size))
-        backdrop.wantsLayer = true
-        backdrop.layer?.backgroundColor = (dark ? NSColor(srgbRed: 0.11, green: 0.14, blue: 0.20, alpha: 1)
-                                                : NSColor(srgbRed: 0.79, green: 0.84, blue: 0.91, alpha: 1)).cgColor
-        hosting.frame = backdrop.bounds
-        backdrop.addSubview(hosting)
-        let window = KeyWindow(contentRect: NSRect(x: 200, y: 200, width: size.width, height: size.height),
-                              styleMask: [.borderless], backing: .buffered, defer: false)
-        window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
-        window.contentView = backdrop
-        // an active key window, so switches use the accent tint like the real popover
+        let controller = HUDController(model: model)
+        let screen = NSScreen.main
+        let visible = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 875)
+        let anchor = NSRect(x: visible.midX - 12, y: visible.maxY, width: 24, height: 24)
         NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
-        RunLoop.current.run(until: Date().addingTimeInterval(1.5))
-
-        // 2x snapshot of the view hierarchy
-        let scale = 2
-        if let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width) * scale, pixelsHigh: Int(size.height) * scale,
-                                      bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
-                                      colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) {
-            rep.size = size
-            backdrop.cacheDisplay(in: backdrop.bounds, to: rep)
-            save(rep, to: path + ".png")
+        controller.window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
+        controller.show(below: anchor, on: screen)
+        RunLoop.current.run(until: Date().addingTimeInterval(1.2))
+        if let then {
+            then(model)
+            RunLoop.current.run(until: Date().addingTimeInterval(1.2))
         }
-        window.orderOut(nil)
+        let window = controller.window
+        guard let content = window.contentView else { return }
+        let size = content.bounds.size
+        let frame = window.frame
+        let topGap = visible.maxY - (frame.maxY - HUDController.margin)
+        print("\(path): window \(Int(size.width))x\(Int(size.height)), panel \(Int(controller.panelHeight)) pt, top gap \(Int(topGap)) pt, inside visibleFrame \(visible.contains(frame.insetBy(dx: HUDController.margin, dy: HUDController.margin)))")
+
+        let scale = 2
+        guard let panelRep = content.bitmapImageRepForCachingDisplay(in: content.bounds) else { return }
+        content.cacheDisplay(in: content.bounds, to: panelRep)
+        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width) * scale, pixelsHigh: Int(size.height) * scale,
+                                         bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
+                                         colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0) else { return }
+        rep.size = size
+        NSGraphicsContext.saveGraphicsState()
+        NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+        // a plain desktop-like backdrop under the translucent panel
+        (dark ? NSColor(srgbRed: 0.11, green: 0.14, blue: 0.20, alpha: 1) : NSColor(srgbRed: 0.79, green: 0.84, blue: 0.91, alpha: 1)).setFill()
+        NSRect(origin: .zero, size: size).fill()
+        panelRep.draw(in: NSRect(origin: .zero, size: size), from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        NSGraphicsContext.restoreGraphicsState()
+        save(rep, to: path + ".png")
+        controller.close()
+        RunLoop.current.run(until: Date().addingTimeInterval(0.3))
     }
 
     static func save(_ rep: NSBitmapImageRep, to path: String) {
