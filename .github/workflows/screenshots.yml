@@ -3,7 +3,7 @@ name: Screenshots
 # Renders the real macOS HUD (NimbusHUDView) and the Windows panel to PNG for docs/screenshots.
 on:
   pull_request:
-    paths: ['macos/App/NimbusHUD.swift', 'macos/App/NimbusDesign.swift', 'macos/App/NimbusSupport.swift', 'macos/Screenshots/**', 'windows/src/Nimbus/**', '.github/workflows/screenshots.yml']
+    paths: ['macos/App/NimbusHUD.swift', 'macos/App/NimbusDesign.swift', 'macos/App/NimbusSupport.swift', 'macos/App/VpnDetect.swift', 'macos/Screenshots/**', 'windows/src/Nimbus/**', '.github/workflows/screenshots.yml']
   workflow_dispatch:
 
 jobs:
@@ -15,14 +15,14 @@ jobs:
         run: |
           SDK=$(xcrun --sdk macosx --show-sdk-path)
           xcrun swiftc -typecheck -parse-as-library -sdk "$SDK" -target "$(uname -m)-apple-macos14.0" \
-            macos/App/ZapretMacApp.swift macos/App/NimbusDesign.swift macos/App/NimbusHUD.swift macos/App/NimbusSupport.swift
+            macos/App/ZapretMacApp.swift macos/App/NimbusDesign.swift macos/App/NimbusHUD.swift macos/App/NimbusSupport.swift macos/App/VpnDetect.swift
       - name: Render macOS HUD
         run: |
           SDK=$(xcrun --sdk macosx --show-sdk-path)
           # build for the runner's own arch so the renderer can run there
           xcrun swiftc -O -parse-as-library -sdk "$SDK" -target "$(uname -m)-apple-macos14.0" \
             -framework AppKit -framework SwiftUI -framework QuartzCore \
-            macos/App/NimbusDesign.swift macos/App/NimbusHUD.swift macos/App/NimbusSupport.swift macos/Screenshots/RenderHUD.swift -o render-hud
+            macos/App/NimbusDesign.swift macos/App/NimbusHUD.swift macos/App/NimbusSupport.swift macos/App/VpnDetect.swift macos/Screenshots/RenderHUD.swift -o render-hud
           # the Intel VMs report a Metal device without an architecture and RenderBox aborts loading its
           # shader archive; these switches make SwiftUI draw on the CPU there
           if [ "$(uname -m)" = x86_64 ]; then export RB_USE_BINARY_ARCHIVE=0 RB_DISABLE_GPU=1; fi
