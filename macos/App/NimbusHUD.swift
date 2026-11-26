@@ -706,7 +706,6 @@ struct NimbusHUDView: View {
             }
             .scaleEffect(model.presented ? 1 : 0.96, anchor: .top)
             .opacity(model.presented ? 1 : 0)
-            .blur(radius: model.presented || Motion.reduce ? 0 : 8)
             .offset(y: model.presented || Motion.reduce ? 0 : -6)
             .padding(HUDController.margin)
             .frame(width: NB.width + 2 * HUDController.margin)
@@ -727,6 +726,9 @@ struct NimbusHUDView: View {
             .id(model.openEpoch)
             .animation(Motion.smooth, value: model.page)
         }
+        // blur-in on the content only: blurring the material and shadow too meant an offscreen pass
+        // over the whole window on every frame of the open animation
+        .blur(radius: model.presented || Motion.reduce ? 0 : 8)
         .frame(width: NB.width)
         .overlay {
             if model.paletteOpen {
