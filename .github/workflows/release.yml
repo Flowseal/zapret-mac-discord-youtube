@@ -1,67 +1,124 @@
-name: Release macOS artifact
+name: Release
 
 on:
   workflow_dispatch:
     inputs:
       tag:
-        description: "Release tag, e.g. v1.0.0"
+        description: "Release tag, e.g. v1.3.0 (a tag with a suffix like v1.3.0-beta.1 becomes a prerelease)"
         required: true
         type: string
+  push:
+    tags:
+      - "v*"
 
 permissions:
-  actions: read
   contents: write
 
+env:
+  TAG: ${{ github.event.inputs.tag || github.ref_name }}
+
 jobs:
-  release:
-    runs-on: ubuntu-latest
-
+  macos:
+    runs-on: macos-15-intel
     steps:
-      - name: Find latest successful macOS Universal run
-        id: find-run
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          RUN_ID=$(gh api \
-            "repos/${{ github.repository }}/actions/workflows/macos.yml/runs?status=success&per_page=1" \
-            --jq '.workflow_runs[0].id')
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
 
-          if [ -z "$RUN_ID" ] || [ "$RUN_ID" = "null" ]; then
-            echo "No successful workflow run found"
+      - name: Build
+        run: bash ./macos/build.sh
+
+      - name: Check archive
+        run: |
+          ZIP=dist/Nimbus-macOS-universal.zip
+          test -s "$ZIP"
+          unzip -p "$ZIP" Nimbus.app/Contents/Info.plist > /tmp/Nimbus-Info.plist
+          APP_VERSION=$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' /tmp/Nimbus-Info.plist)
+          TAG_VERSION=$(printf '%s' "$TAG" | sed -E 's/^[vV]//; s/-.*$//')
+          if [ "$APP_VERSION" != "$TAG_VERSION" ]; then
+            echo "App version $APP_VERSION does not match tag $TAG"
             exit 1
           fi
+          FULL_VERSION=$(/usr/libexec/PlistBuddy -c 'Print :NimbusVersion' /tmp/Nimbus-Info.plist)
+          if [ "$FULL_VERSION" != "$(printf '%s' "$TAG" | sed -E 's/^[vV]//')" ]; then
+            echo "NimbusVersion $FULL_VERSION does not match tag $TAG"
+            exit 1
+          fi
+          lipo -archs build/macos/Nimbus.app/Contents/MacOS/Nimbus
+          lipo build/macos/Nimbus.app/Contents/MacOS/Nimbus -verify_arch x86_64
+          lipo build/macos/Nimbus.app/Contents/MacOS/Nimbus -verify_arch arm64
+          lipo build/macos/Nimbus.app/Contents/Resources/Payload/bin/utunws -verify_arch x86_64
+          lipo build/macos/Nimbus.app/Contents/Resources/Payload/bin/utunws -verify_arch arm64
 
-          echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
-          echo "Using workflow run: $RUN_ID"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-macos
+          path: dist/Nimbus-macOS-universal.zip
+          if-no-files-found: error
 
-      - name: Download artifact
-        env:
-          GH_TOKEN: ${{ github.token }}
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.TAG }}
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Build
+        shell: pwsh
+        run: ./windows/build.ps1
+
+      - name: Check exe
+        shell: pwsh
         run: |
-          mkdir artifact
+          foreach ($name in @("Nimbus-Windows-x64.exe", "Nimbus-Windows-x64-lite.exe")) {
+            $exe = "dist/$name"
+            if (-not (Test-Path $exe)) { throw "missing $exe" }
+            $info = (Get-Item $exe).VersionInfo
+            $app = "$($info.FileMajorPart).$($info.FileMinorPart).$($info.FileBuildPart)"
+            $tag = ($env:TAG -replace '^[vV]', '') -replace '-.*$', ''
+            if ($app -ne $tag) { throw "$name version $app does not match tag $env:TAG" }
+            $product = ($info.ProductVersion -replace '\+.*$', '')
+            if ($product -ne ($env:TAG -replace '^[vV]', '')) { throw "$name product version $product does not match tag $env:TAG" }
+          }
+          $p = Start-Process -FilePath dist/Nimbus-Windows-x64.exe -ArgumentList '--self-test', "$PWD\self-test.txt" -Wait -PassThru
+          Get-Content self-test.txt
+          if ($p.ExitCode -ne 0) { throw "self-test failed" }
 
-          gh run download "${{ steps.find-run.outputs.run_id }}" \
-            --repo "${{ github.repository }}" \
-            --name "ZapretMac-macOS-universal" \
-            --dir artifact
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-windows
+          path: |
+            dist/Nimbus-Windows-x64.exe
+            dist/Nimbus-Windows-x64-lite.exe
+          if-no-files-found: error
 
-          ls -la artifact
+  publish:
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
 
       - name: Create release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          unzip -p artifact/ZapretMac-macOS-universal.zip ZapretMac.app/Contents/Info.plist > /tmp/ZapretMac-Info.plist
-          APP_VERSION=$(python3 -c 'import plistlib; print(plistlib.load(open("/tmp/ZapretMac-Info.plist", "rb"))["CFBundleShortVersionString"])')
-          TAG_VERSION=$(printf '%s' '${{ inputs.tag }}' | sed -E 's/^[vV]//; s/-.*$//')
-
-          if [ "$APP_VERSION" != "$TAG_VERSION" ]; then
-            echo "App version $APP_VERSION does not match tag ${{ inputs.tag }}"
-            exit 1
+          ls -la dist
+          FILES="dist/Nimbus-macOS-universal.zip dist/Nimbus-Windows-x64.exe dist/Nimbus-Windows-x64-lite.exe"
+          if gh release view "$TAG" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            gh release upload "$TAG" $FILES --clobber --repo "${{ github.repository }}"
+          else
+            PRERELEASE=""
+            case "$TAG" in *-*) PRERELEASE="--prerelease" ;; esac
+            gh release create "$TAG" $FILES \
+              --repo "${{ github.repository }}" \
+              --title "Nimbus $TAG" \
+              --generate-notes $PRERELEASE
           fi
-
-          gh release create "${{ inputs.tag }}" \
-            artifact/ZapretMac-macOS-universal.zip \
-            --repo "${{ github.repository }}" \
-            --title "${{ inputs.tag }}" \
-            --generate-notes

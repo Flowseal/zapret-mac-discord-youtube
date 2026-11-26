@@ -1,0 +1,49 @@
+name: Баг
+description: Что-то не работает
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Перед отправкой уберите из логов имя пользователя, реальные IP и названия рабочих VPN. Для примера IP берите адреса из сети 203.0.113.0/24.
+
+        В разделе «Ещё» откройте «Логи» и нажмите «Копировать». Файлы:
+
+        - macOS: `/Library/Application Support/ZapretMac/engine.log` и `zapret.log`
+        - Windows: `C:\ProgramData\Nimbus\engine.log` и `nimbus.log`
+  - type: input
+    id: os
+    attributes:
+      label: Система
+      placeholder: macOS 15.1, Apple Silicon; или Windows 11 24H2, x64
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Версия Nimbus
+      description: Номер в заголовке окна и внизу раздела «Ещё».
+    validations:
+      required: true
+  - type: input
+    id: service
+    attributes:
+      label: Что не работает
+      placeholder: YouTube, Discord, конкретный сайт
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Что происходит
+      description: Что вы делали, что ожидали, что получилось. Если есть VPN или DNS не от системы, укажите.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Логи
+      description: Вставьте фрагмент или укажите путь к файлу. Личные данные удалите.
+      render: text
+    validations:
+      required: true

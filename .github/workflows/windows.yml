@@ -1,0 +1,74 @@
+name: Build Windows x64
+
+on:
+  push:
+    branches: [master]
+    paths-ignore: ['**.md', 'docs/**']
+  pull_request:
+    paths-ignore: ['**.md', 'docs/**']
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Check version matches macOS app
+        shell: pwsh
+        run: |
+          [xml]$proj = Get-Content windows/src/Nimbus/Nimbus.csproj
+          $win = ($proj.Project.PropertyGroup | Where-Object { $_.Version } | Select-Object -First 1).Version
+          $plist = Get-Content macos/Info.plist -Raw
+          # NimbusVersion holds the full version ("1.6.0-beta.2"); CFBundleShortVersionString only "1.6.0"
+          $mac = [regex]::Match($plist, '<key>NimbusVersion</key>\s*<string>([^<]+)</string>').Groups[1].Value
+          if (-not $mac) { $mac = [regex]::Match($plist, '<key>CFBundleShortVersionString</key>\s*<string>([^<]+)</string>').Groups[1].Value }
+          if ($win -ne $mac) { throw "Windows version $win != macOS version $mac" }
+          Write-Host "Version $win"
+
+      - name: Build
+        shell: pwsh
+        run: ./windows/build.ps1
+
+      - name: Self-test (winws --dry-run for every strategy, start/stop engine)
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist/Nimbus-Windows-x64.exe -ArgumentList '--self-test', "$PWD\self-test.txt" -Wait -PassThru
+          Get-Content self-test.txt
+          if ($p.ExitCode -ne 0) { throw "self-test failed ($($p.ExitCode))" }
+
+      - name: Render UI screenshots
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist/Nimbus-Windows-x64.exe -ArgumentList '--render-screens', "$PWD\screens" -Wait -PassThru
+          if ($p.ExitCode -ne 0) { throw "render failed ($($p.ExitCode))" }
+          Get-ChildItem screens
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Nimbus-Windows-x64
+          path: |
+            dist/Nimbus-Windows-x64.exe
+            dist/Nimbus-Windows-x64-lite.exe
+          if-no-files-found: error
+
+      - name: Collect engine logs
+        if: always()
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force logs | Out-Null
+          Copy-Item C:/ProgramData/Nimbus/*.log logs -ErrorAction SilentlyContinue
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: Nimbus-Windows-diagnostics
+          path: |
+            self-test.txt
+            screens/
+            logs/
+          if-no-files-found: ignore

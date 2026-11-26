@@ -1,21 +1,48 @@
 name: Build macOS Universal
 
 on:
+  push:
+    branches: [master, nimbus-minibar]
+    paths-ignore: ['**.md', 'docs/**', 'windows/**', '.github/workflows/windows.yml']
+  pull_request:
+    paths-ignore: ['**.md', 'docs/**', 'windows/**', '.github/workflows/windows.yml']
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: macos-14
+    runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
+      - name: Shell checks and pf helper tests
+        run: |
+          command -v shellcheck >/dev/null || brew install shellcheck
+          shellcheck -x -S warning macos/Payload/run.sh macos/Payload/stop.sh macos/Payload/pf-lib.sh macos/tests/pf-lib-test.sh
+          sh macos/tests/pf-lib-test.sh
+      - name: Swift detection tests
+        run: |
+          mkdir -p "$RUNNER_TEMP/vpn"
+          cp macos/App/VpnDetect.swift "$RUNNER_TEMP/vpn/"
+          cp macos/tests/VpnDetectTests.swift "$RUNNER_TEMP/vpn/main.swift"
+          xcrun swiftc -O "$RUNNER_TEMP/vpn/VpnDetect.swift" "$RUNNER_TEMP/vpn/main.swift" -o "$RUNNER_TEMP/vpn/test"
+          "$RUNNER_TEMP/vpn/test"
+      - name: Load the generated rules into a throwaway pf anchor
+        run: |
+          # lo0 stands in for the interfaces, so the names exist on the runner
+          NIMBUS_IFACE=lo0 sh -c '. macos/Payload/pf-lib.sh; pf_render lo0 1 lo0 "$(printf "203.0.113.7\n2001:db8::7")" "$(printf "10.0.0.0/8\n2001:db8::/32\n198.51.100.0/24")"' > rules.txt
+          cat rules.txt
+          sudo pfctl -n -f rules.txt
+          sudo pfctl -a com.apple/nimbus-ci -f rules.txt
+          sudo pfctl -a com.apple/nimbus-ci -sr
+          test "$(sudo pfctl -a com.apple/nimbus-ci -sr | wc -l | tr -d ' ')" -ge 7
+          sudo pfctl -a com.apple/nimbus-ci -F all
       - name: Build
         run: bash ./macos/build.sh
       - name: Verify architectures
         run: |
-          lipo -archs build/macos/ZapretMac.app/Contents/MacOS/ZapretMac
-          lipo -archs build/macos/ZapretMac.app/Contents/Resources/Payload/bin/utunws
+          lipo -archs build/macos/Nimbus.app/Contents/MacOS/Nimbus
+          lipo -archs build/macos/Nimbus.app/Contents/Resources/Payload/bin/utunws
       - uses: actions/upload-artifact@v4
         with:
-          name: ZapretMac-macOS-universal
-          path: dist/ZapretMac-macOS-universal.zip
+          name: Nimbus-macOS-universal
+          path: dist/Nimbus-macOS-universal.zip
           if-no-files-found: error

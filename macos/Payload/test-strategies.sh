@@ -7,8 +7,23 @@ TEST_UID=$3
 TEST_GID=$4
 BASE='/Library/Application Support/ZapretMac'
 REPORT="$DATA_ROOT/strategy-test.txt"
+LIVE="$DATA_ROOT/strategy-test-live.tsv"
+BESTFILE="$DATA_ROOT/strategy-test-best"
 PROGRESS="$DATA_ROOT/strategy-test-progress"
 CANCEL="$DATA_ROOT/strategy-test-cancel"
+MODE_FILE="$DATA_ROOT/strategy-test-mode"
+EXTRA_FILE="$DATA_ROOT/strategy-test-extra"
+ORDER_FILE="$DATA_ROOT/strategy-test-order.tsv"
+APPLY_FILE="$DATA_ROOT/strategy-test-apply"
+MODE=$(/usr/bin/tr -d '[:space:]' <"$MODE_FILE" 2>/dev/null || true)
+case "$MODE" in
+    smart) ;;
+    *) MODE=full ;;
+esac
+EXTRA_HOST=$(/usr/bin/tr -d '[:space:]' <"$EXTRA_FILE" 2>/dev/null || true)
+case "$EXTRA_HOST" in
+    *[!A-Za-z0-9._:-]*|''|*[.][.]*) EXTRA_HOST= ;;
+esac
 TMP=$(/usr/bin/mktemp -d /tmp/zapret-strategy-test.XXXXXX)
 ORIGINAL_STRATEGY=$(/usr/bin/tr -d '[:space:]' <"$DATA_ROOT/selected-strategy" 2>/dev/null || true)
 ORIGINAL_IPSET=$(/usr/bin/tr -d '[:space:]' <"$DATA_ROOT/ipset-mode" 2>/dev/null || true)
@@ -33,14 +48,14 @@ restore() {
     printf '%s\n' "$ORIGINAL_IPSET" >"$DATA_ROOT/ipset-mode"
     if [ "$ORIGINAL_RUNNING" -eq 1 ]; then
         if [ "$INSTALLED" -eq 1 ]; then
-            "$BASE/restart.sh" >/dev/null 2>&1 || true
+            /bin/sh "$BASE/restart.sh" >/dev/null 2>&1 || true
         else
-            "$SOURCE/install.sh" "$SOURCE" "$DATA_ROOT" >/dev/null 2>&1 || true
+            /bin/sh "$SOURCE/install.sh" "$SOURCE" "$DATA_ROOT" >/dev/null 2>&1 || true
         fi
     else
-        "$SOURCE/stop.sh" >/dev/null 2>&1 || true
+        /bin/sh "$SOURCE/stop.sh" >/dev/null 2>&1 || true
     fi
-    /usr/sbin/chown "$TEST_UID:$TEST_GID" "$REPORT" 2>/dev/null || true
+    /usr/sbin/chown -h "$TEST_UID:$TEST_GID" "$REPORT" "$APPLY_FILE" 2>/dev/null || true
     /bin/chmod 644 "$REPORT" 2>/dev/null || true
     /bin/rm -f "$PROGRESS" "$CANCEL"
     /bin/rm -rf "$TMP"
@@ -54,7 +69,7 @@ run_user() {
 
 set_progress() {
     printf '%s\n' "$1" >"$PROGRESS"
-    /usr/sbin/chown "$TEST_UID:$TEST_GID" "$PROGRESS" 2>/dev/null || true
+    /usr/sbin/chown -h "$TEST_UID:$TEST_GID" "$PROGRESS" 2>/dev/null || true
 }
 
 cancel_requested() {
@@ -174,10 +189,10 @@ start_strategy() {
     printf '%s\n' "$STRATEGY" >"$DATA_ROOT/selected-strategy"
     printf 'any\n' >"$DATA_ROOT/ipset-mode"
     if [ "$INSTALLED" -eq 0 ]; then
-        if ! "$SOURCE/install.sh" "$SOURCE" "$DATA_ROOT" >"$TMP/install.log" 2>&1; then return 1; fi
+        if ! /bin/sh "$SOURCE/install.sh" "$SOURCE" "$DATA_ROOT" >"$TMP/install.log" 2>&1; then return 1; fi
         INSTALLED=1
     else
-        if ! "$BASE/restart.sh" >"$TMP/restart.log" 2>&1; then return 1; fi
+        if ! /bin/sh "$BASE/restart.sh" >"$TMP/restart.log" 2>&1; then return 1; fi
     fi
     wait_for_engine "$OLD_PID"
 }
@@ -191,10 +206,18 @@ youtu.be
 i.ytimg.com
 redirector.googlevideo.com
 www.gstatic.com'
+if [ -n "$EXTRA_HOST" ]; then
+    TARGETS="$TARGETS
+$EXTRA_HOST"
+fi
 
 : >"$REPORT"
+: >"$LIVE"
+: >"$BESTFILE"
+: >"$APPLY_FILE"
+/usr/sbin/chown -h "$TEST_UID:$TEST_GID" "$LIVE" "$BESTFILE" 2>/dev/null || true
 set_progress 'Подготовка'
-"$SOURCE/stop.sh" >/dev/null 2>&1 || true
+/bin/sh "$SOURCE/stop.sh" >/dev/null 2>&1 || true
 INDEX=0
 while IFS= read -r HOST; do
     INDEX=$((INDEX + 1))
@@ -252,7 +275,9 @@ BEST_SCORE=-1
 BEST_TLS=-1
 BEST_NAMES=''
 STRATEGY_NUMBER=0
-STRATEGY_TOTAL=$(/usr/bin/wc -l <"$SOURCE/strategies.tsv" | /usr/bin/tr -d ' ')
+STRATEGY_FILE="$SOURCE/strategies.tsv"
+if [ -s "$ORDER_FILE" ]; then STRATEGY_FILE="$ORDER_FILE"; fi
+STRATEGY_TOTAL=$(/usr/bin/wc -l <"$STRATEGY_FILE" | /usr/bin/tr -d ' ')
 MAX_TOTAL=$((AVAILABLE_COUNT * (3 + TLS13)))
 printf '\n%-34s %7s %7s %7s %7s %7s\n' 'Strategy' 'Score' 'Ping' 'HTTP' 'TLS1.2' 'TLS1.3' >>"$REPORT"
 TAB=$(printf '\t')
@@ -270,6 +295,8 @@ while IFS="$TAB" read -r STRATEGY_ID STRATEGY_NAME; do
     if ! start_strategy "$STRATEGY_ID"; then
         if cancel_requested; then CANCELLED=1; break; fi
         printf '%-34s %s\n' "$STRATEGY_NAME" 'ошибка запуска' >>"$REPORT"
+        printf '%s\terr\t0\t0\t0\t0\n' "$STRATEGY_NAME" >>"$LIVE"
+        /usr/sbin/chown -h "$TEST_UID:$TEST_GID" "$LIVE" 2>/dev/null || true
         continue
     fi
     INDEX=0
@@ -313,6 +340,8 @@ $TARGETS
 EOF
     if [ "$TLS13" -eq 1 ]; then TLS13_TEXT="$TLS13_OK/$AVAILABLE_COUNT"; else TLS13_TEXT='-'; fi
     printf '%-34s %7s %7s %7s %7s %7s\n' "$STRATEGY_NAME" "$SCORE/$TOTAL" "$PING_OK/$AVAILABLE_COUNT" "$HTTP_OK/$AVAILABLE_COUNT" "$TLS12_OK/$AVAILABLE_COUNT" "$TLS13_TEXT" >>"$REPORT"
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$STRATEGY_NAME" "$SCORE" "$TOTAL" "$PING_OK" "$HTTP_OK" "$TLS12_OK" >>"$LIVE"
+    /usr/sbin/chown -h "$TEST_UID:$TEST_GID" "$LIVE" 2>/dev/null || true
     if [ "$SCORE" -gt "$BEST_SCORE" ] || { [ "$SCORE" -eq "$BEST_SCORE" ] && [ "$TLS_SCORE" -gt "$BEST_TLS" ]; }; then
         BEST_SCORE=$SCORE
         BEST_TLS=$TLS_SCORE
@@ -320,13 +349,46 @@ EOF
     elif [ "$SCORE" -eq "$BEST_SCORE" ] && [ "$TLS_SCORE" -eq "$BEST_TLS" ]; then
         BEST_NAMES="$BEST_NAMES, $STRATEGY_NAME"
     fi
-done <"$SOURCE/strategies.tsv"
+    if [ "$MODE" = smart ]; then
+        SMART_OK=1
+        INDEX=0
+        for NEED in discord.com www.youtube.com $EXTRA_HOST; do
+            [ -n "$NEED" ] || continue
+            HIT=0
+            INDEX=0
+            while IFS= read -r HOST; do
+                INDEX=$((INDEX + 1))
+                [ "$HOST" = "$NEED" ] || continue
+                [ -s "$TMP/available-$INDEX" ] || { SMART_OK=0; HIT=1; break; }
+                TLS12_RESULT=$(/usr/bin/awk -F "$TAB" '{print $1}' "$RESULT_DIR/$INDEX-tls12")
+                TLS13_RESULT=NO
+                if [ "$TLS13" -eq 1 ]; then TLS13_RESULT=$(/usr/bin/awk -F "$TAB" '{print $1}' "$RESULT_DIR/$INDEX-tls13"); fi
+                if [ "$TLS12_RESULT" = OK ] || [ "$TLS13_RESULT" = OK ]; then HIT=1; else SMART_OK=0; HIT=1; fi
+                break
+            done <<EOF
+$TARGETS
+EOF
+            if [ "$HIT" -eq 0 ]; then SMART_OK=0; fi
+        done
+        if [ "$SMART_OK" -eq 1 ]; then
+            printf '%s\n' "$STRATEGY_ID" >"$APPLY_FILE"
+            BEST_SCORE=$SCORE
+            BEST_TLS=$TLS_SCORE
+            BEST_NAMES=$STRATEGY_NAME
+            break
+        fi
+    fi
+done <"$STRATEGY_FILE"
 
 if [ "$CANCELLED" -eq 1 ] || cancel_requested; then
     printf '\nОстановлено\n' >>"$REPORT"
+    printf 'Остановлено\n' >"$BESTFILE"
 elif [ "$BEST_SCORE" -ge 0 ]; then
     printf '\nЛучшая: %s (%s/%s)\n' "$BEST_NAMES" "$BEST_SCORE" "$MAX_TOTAL" >>"$REPORT"
+    printf 'Лучшая: %s (%s/%s)\n' "$BEST_NAMES" "$BEST_SCORE" "$MAX_TOTAL" >"$BESTFILE"
 else
     printf '\nЛучшая: не определена\n' >>"$REPORT"
+    printf 'Лучшая: не определена\n' >"$BESTFILE"
 fi
+/usr/sbin/chown -h "$TEST_UID:$TEST_GID" "$BESTFILE" "$LIVE" 2>/dev/null || true
 printf 'Готово\n'
