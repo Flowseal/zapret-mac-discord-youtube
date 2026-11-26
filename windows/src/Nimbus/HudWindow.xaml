@@ -663,7 +663,11 @@
                                     </DockPanel>
                                     <Grid Height="2" Margin="0,0,0,8" Visibility="{Binding ShowTestBar, Converter={StaticResource Vis}}">
                                         <Border CornerRadius="1" Background="{DynamicResource Line2Brush}" />
-                                        <Border x:Name="TestBarFill" CornerRadius="1" Background="{DynamicResource AccentBrush}" HorizontalAlignment="Left" Width="4" />
+                                        <Border x:Name="TestBarFill" CornerRadius="1" Background="{DynamicResource AccentBrush}">
+                                            <Border.RenderTransform>
+                                                <ScaleTransform x:Name="TestBarScale" ScaleX="0" />
+                                            </Border.RenderTransform>
+                                        </Border>
                                     </Grid>
                                     <ScrollViewer MaxHeight="140" VerticalScrollBarVisibility="Auto" Visibility="{Binding HasTestRows, Converter={StaticResource Vis}}">
                                         <ItemsControl ItemsSource="{Binding TestRows}">
