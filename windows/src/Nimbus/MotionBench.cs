@@ -20,6 +20,7 @@ internal static class MotionBench
     public static int Run(string reportPath)
     {
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        Motion.UseDisplayRate();
         Theme.Apply(app.Resources);
         var report = new StringBuilder();
         report.AppendLine($"Nimbus {Updater.CurrentVersion}, render tier {RenderCapability.Tier >> 16}");

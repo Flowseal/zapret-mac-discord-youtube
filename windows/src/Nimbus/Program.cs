@@ -49,6 +49,7 @@ internal static class Program
         }
 
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
+        Motion.UseDisplayRate();
         Theme.Apply(app.Resources);
         var controller = new AppController();
         app.DispatcherUnhandledException += (_, e) =>
