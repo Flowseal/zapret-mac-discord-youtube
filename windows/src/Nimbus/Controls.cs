@@ -71,6 +71,7 @@ internal static class Motion
         {
             element.RenderTransform = Transform.Identity;
             element.Effect = null;
+            element.CacheMode = null;
             return;
         }
         var translate = new TranslateTransform(dx, dy);
@@ -87,12 +88,22 @@ internal static class Motion
         {
             var effect = new BlurEffect { Radius = blur, RenderingBias = RenderingBias.Performance };
             element.Effect = effect;
+            // while it moves, blur a cached bitmap of the element instead of re-rendering its tree every frame
+            var cache = new BitmapCache { SnapsToDevicePixels = true, RenderAtScale = DeviceScale(element) };
+            element.CacheMode = cache;
             var anim = FromTo(blur, 0, kind, delay);
-            // a lingering blur effect softens text: drop it once the animation has landed
-            anim.Completed += (_, _) => { if (element.Effect == effect) element.Effect = null; };
+            // a lingering blur or cache softens text: drop both once the animation has landed
+            anim.Completed += (_, _) =>
+            {
+                if (element.Effect == effect) element.Effect = null;
+                if (element.CacheMode == cache) element.CacheMode = null;
+            };
             effect.BeginAnimation(BlurEffect.RadiusProperty, anim);
         }
     }
+
+    private static double DeviceScale(UIElement element) =>
+        PresentationSource.FromVisual(element)?.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
 
     /// <summary>Rows fade + lift in one after another (22 ms apart).</summary>
     public static void Stagger(Panel? panel, double start = 0)

@@ -436,6 +436,10 @@
     <Grid x:Name="Root" Margin="18">
         <!-- shadow on its own layer so text is never rendered through an effect -->
         <Border x:Name="ShadowLayer" CornerRadius="8" Background="{DynamicResource PanelBaseBrush}">
+            <!-- the blur is computed once and reused while the panel scales and fades -->
+            <Border.CacheMode>
+                <BitmapCache SnapsToDevicePixels="True" />
+            </Border.CacheMode>
             <Border.Effect>
                 <DropShadowEffect BlurRadius="28" ShadowDepth="10" Opacity="{DynamicResource ShadowOpacity}" Direction="270" />
             </Border.Effect>
@@ -1097,11 +1101,17 @@
 
             <!-- ===== Ctrl+K command bar ===== -->
             <Border x:Name="Scrim" Background="{DynamicResource ScrimBrush}" Visibility="Collapsed" MouseDown="Scrim_MouseDown" />
-            <Border x:Name="Palette" Width="300" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,8,48" Visibility="Collapsed"
-                    CornerRadius="8" Background="{DynamicResource SolidBrush}" BorderBrush="{DynamicResource Line2Brush}" BorderThickness="1" RenderTransformOrigin="1,1">
-                <Border.Effect>
-                    <DropShadowEffect BlurRadius="24" ShadowDepth="8" Opacity="{DynamicResource ShadowOpacity}" Direction="270" />
-                </Border.Effect>
+            <Grid x:Name="Palette" Width="300" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="0,0,8,48" Visibility="Collapsed" RenderTransformOrigin="1,1">
+                <!-- shadow on its own cached layer: typing and the open animation don't re-blur it -->
+                <Border CornerRadius="8" Background="{DynamicResource SolidBrush}">
+                    <Border.Effect>
+                        <DropShadowEffect BlurRadius="24" ShadowDepth="8" Opacity="{DynamicResource ShadowOpacity}" Direction="270" />
+                    </Border.Effect>
+                    <Border.CacheMode>
+                        <BitmapCache SnapsToDevicePixels="True" />
+                    </Border.CacheMode>
+                </Border>
+                <Border CornerRadius="8" Background="{DynamicResource SolidBrush}" BorderBrush="{DynamicResource Line2Brush}" BorderThickness="1">
                 <DockPanel>
                     <Border DockPanel.Dock="Bottom" Height="40" BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="12,0">
                         <DockPanel>
@@ -1144,7 +1154,8 @@
                         </StackPanel>
                     </ScrollViewer>
                 </DockPanel>
-            </Border>
+                </Border>
+            </Grid>
         </Grid>
         <!-- hairline border on top of everything -->
         <Border CornerRadius="8" BorderBrush="{DynamicResource Line2Brush}" BorderThickness="1" IsHitTestVisible="False" />
