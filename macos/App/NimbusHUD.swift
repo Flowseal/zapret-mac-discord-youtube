@@ -139,6 +139,8 @@ final class HUDModel: ObservableObject {
     @Published var paletteIndex = 0
     @Published var presented = true
     @Published var openEpoch = 0
+    /// Height of the visible panel as SwiftUI laid it out; the window follows it (HUDController).
+    var onPanelHeight: (CGFloat) -> Void = { _ in }
 
     var toggleService: () -> Void = {}
     var selectStrategy: (String) -> Void = { _ in }
@@ -464,6 +466,14 @@ final class HUDController {
     private var closing = false
     private var subscriptions = Set<AnyCancellable>()
     private weak var statusButton: NSStatusBarButton?
+    /// Screen rect of the status item; set by show(relativeTo:) or show(below:) for the screenshot renderer.
+    private var anchorRect: NSRect?
+    private weak var anchorScreen: NSScreen?
+    /// Last panel height reported by SwiftUI (without the shadow margin).
+    private(set) var panelHeight: CGFloat = 0
+    private var shrinkWork: DispatchWorkItem?
+    /// Used before SwiftUI has reported a height: tall enough for every page, transparent below the panel.
+    static let provisionalHeight: CGFloat = 720
 
     init(model: HUDModel) {
         self.model = model
@@ -488,12 +498,16 @@ final class HUDController {
         panel.isReleasedWhenClosed = false
         panel.contentViewController = hosting
         model.requestClose = { [weak self] in self?.close() }
-        // page morphs change the content height: follow it now and again once the transition has settled
-        model.$page.removeDuplicates().dropFirst().sink { [weak self] _ in
-            DispatchQueue.main.async { self?.relayout() }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.38) { self?.relayout() }
-        }.store(in: &subscriptions)
+        model.onPanelHeight = { [weak self] height in
+            guard let self, height > 1, abs(height - self.panelHeight) > 0.5 else { return }
+            self.panelHeight = height
+            // reported during a SwiftUI layout pass: resize the window right after it
+            DispatchQueue.main.async { self.relayout() }
+        }
     }
+
+    /// The window that hosts the panel (for the screenshot renderer).
+    var window: NSPanel { panel }
 
     var isVisible: Bool { panel.isVisible && !closing }
 
@@ -507,6 +521,23 @@ final class HUDController {
 
     func show(relativeTo button: NSStatusBarButton) {
         statusButton = button
+        if let buttonWindow = button.window {
+            anchorRect = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
+            anchorScreen = buttonWindow.screen
+        }
+        present()
+        button.highlight(true)
+        startMonitors()
+    }
+
+    /// Shows the panel under a given screen rect, as if a status item were there (screenshot renderer).
+    func show(below rect: NSRect, on screen: NSScreen?) {
+        anchorRect = rect
+        anchorScreen = screen
+        present()
+    }
+
+    private func present() {
         let wasVisible = panel.isVisible && !closing
         closing = false
         model.onShown()
@@ -520,14 +551,17 @@ final class HUDController {
                 model.openEpoch += 1
             }
         }
+        // measure the content in a tall window first so nothing is laid out squeezed
+        if !wasVisible {
+            panel.setContentSize(NSSize(width: NB.width + 2 * Self.margin, height: max(Self.provisionalHeight, panelHeight) + 2 * Self.margin))
+            hosting.view.layoutSubtreeIfNeeded()
+        }
         relayout(animated: false)
         panel.alphaValue = 1
         panel.makeKeyAndOrderFront(nil)
-        button.highlight(true)
         DispatchQueue.main.async {
             withAnimation(Motion.panel) { self.model.presented = true }
         }
-        startMonitors()
     }
 
     func relayout() {
@@ -535,32 +569,46 @@ final class HUDController {
     }
 
     func relayout(animated: Bool) {
-        guard let button = statusButton else { return }
-        hosting.view.layoutSubtreeIfNeeded()
-        var size = hosting.view.fittingSize
-        size.width = NB.width + 2 * Self.margin
-        size.height = min(max(size.height, 160), 680)
-        guard let buttonWindow = button.window else {
-            panel.setContentSize(size)
-            return
+        if let button = statusButton, let buttonWindow = button.window {
+            anchorRect = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
+            anchorScreen = buttonWindow.screen
         }
-        let buttonRect = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
-        let screen = buttonWindow.screen ?? NSScreen.main
-        let visible = screen?.visibleFrame ?? buttonRect
-        var x = buttonRect.midX - size.width / 2
-        x = min(max(x, visible.minX + 8 - Self.margin), visible.maxX - size.width + Self.margin - 8)
-        let top = buttonRect.minY - 6 + Self.margin
-        let frame = NSRect(x: x, y: top - size.height, width: size.width, height: size.height)
-        if animated, panel.isVisible, frame != panel.frame {
-            NSAnimationContext.runAnimationGroup { context in
-                context.duration = Motion.reduce ? 0.12 : 0.30
-                context.timingFunction = CAMediaTimingFunction(controlPoints: 0.22, 1, 0.36, 1)
-                context.allowsImplicitAnimation = true
-                panel.animator().setFrame(frame, display: true)
-            }
+        guard let anchor = anchorRect else { return }
+        let screen = anchorScreen ?? NSScreen.main
+        let visible = screen?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: anchor.minY)
+        let width = NB.width + 2 * Self.margin
+        // the panel starts 6 pt under the menu bar; the window adds the transparent shadow margin
+        let panelTop = min(anchor.minY, visible.maxY) - 6
+        let maxPanelHeight = max(panelTop - visible.minY - 8, 120)
+        let wanted = panelHeight > 1 ? min(panelHeight, maxPanelHeight) : min(Self.provisionalHeight, maxPanelHeight)
+        var x = anchor.midX - width / 2
+        x = min(max(x, visible.minX + 8 - Self.margin), visible.maxX - width + Self.margin - 8)
+        let top = panelTop + Self.margin
+        let target = NSRect(x: x, y: top - wanted - 2 * Self.margin, width: width, height: wanted + 2 * Self.margin)
+
+        shrinkWork?.cancel()
+        shrinkWork = nil
+        let current = panel.frame
+        if !panel.isVisible || !animated || target.height >= current.height - 0.5 {
+            // growing (or first show): resize at once; the panel is top-aligned, so the extra room is transparent
+            panel.setFrame(target, display: true)
         } else {
-            panel.setFrame(frame, display: true)
+            // shrinking: keep the window until the page transition has played, then cut the empty space
+            panel.setFrame(NSRect(x: target.minX, y: top - current.height, width: width, height: current.height), display: true)
+            let work = DispatchWorkItem { [weak self] in
+                guard let self, self.panel.isVisible else { return }
+                self.panel.setFrame(target, display: true)
+            }
+            shrinkWork = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + (Motion.reduce ? 0.05 : 0.36), execute: work)
         }
+    }
+
+    /// The drawn panel inside the window (excludes the shadow margin and any transparent space below).
+    private var panelRect: NSRect {
+        let frame = panel.frame
+        let height = panelHeight > 1 ? min(panelHeight, frame.height - 2 * Self.margin) : frame.height - 2 * Self.margin
+        return NSRect(x: frame.minX + Self.margin, y: frame.maxY - Self.margin - height, width: NB.width, height: height)
     }
 
     func close() {
@@ -615,7 +663,7 @@ final class HUDController {
         if event.window?.level == .popUpMenu { return }
         if let button = statusButton, event.window === button.window { return }
         let loc = NSEvent.mouseLocation
-        if panel.frame.insetBy(dx: Self.margin, dy: Self.margin).contains(loc) { return }
+        if panelRect.contains(loc) { return }
         if let button = statusButton, let window = button.window {
             let rect = window.convertToScreen(button.convert(button.bounds, to: nil))
             if rect.contains(loc) { return }
@@ -626,20 +674,37 @@ final class HUDController {
 
 // MARK: - Root
 
+struct PanelHeightKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
+    }
+}
+
 struct NimbusHUDView: View {
     @ObservedObject var model: HUDModel
 
     var body: some View {
-        VStack(spacing: 0) {
-            panel
-                .scaleEffect(model.presented ? 1 : 0.96, anchor: .top)
-                .opacity(model.presented ? 1 : 0)
-                .blur(radius: model.presented || Motion.reduce ? 0 : 8)
-                .offset(y: model.presented || Motion.reduce ? 0 : -6)
-            Spacer(minLength: 0)
-        }
-        .padding(HUDController.margin)
-        .frame(width: NB.width + 2 * HUDController.margin)
+        // The panel always takes its own height and sticks to the top of the window. The window is
+        // sized from the reported height, so a window that is briefly taller (while a page grows or
+        // shrinks) is just transparent below the panel and nothing gets cut or centered.
+        panel
+            .fixedSize(horizontal: false, vertical: true)
+            .background(
+                GeometryReader { geo in
+                    Color.clear.preference(key: PanelHeightKey.self, value: geo.size.height)
+                }
+            )
+            .onPreferenceChange(PanelHeightKey.self) { height in
+                model.onPanelHeight(height)
+            }
+            .scaleEffect(model.presented ? 1 : 0.96, anchor: .top)
+            .opacity(model.presented ? 1 : 0)
+            .blur(radius: model.presented || Motion.reduce ? 0 : 8)
+            .offset(y: model.presented || Motion.reduce ? 0 : -6)
+            .padding(HUDController.margin)
+            .frame(width: NB.width + 2 * HUDController.margin)
+            .frame(maxHeight: .infinity, alignment: .top)
     }
 
     private var panel: some View {
@@ -736,8 +801,10 @@ struct PanelFooter<Leading: View, Trailing: View>: View {
                     .font(NB.small)
                     .foregroundStyle(NB.t2)
                     .lineLimit(1)
+                    .layoutPriority(-1)
                 Spacer(minLength: 8)
                 HStack(spacing: 10) { trailing() }
+                    .fixedSize()
             }
             .padding(.leading, 14)
             .padding(.trailing, 10)
@@ -760,6 +827,8 @@ struct FooterAction: View {
                 Text(title)
                     .font(primary ? .system(size: 12, weight: .medium) : NB.small)
                     .foregroundStyle(primary ? NB.t1 : NB.t2)
+                    .lineLimit(1)
+                    .fixedSize()
                 Keycap(keys: keys)
             }
             .contentShape(Rectangle())
@@ -919,7 +988,10 @@ struct PanelButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 6) {
-                Text(title).font(.system(size: 12, weight: .medium))
+                Text(title)
+                    .font(.system(size: 12, weight: .medium))
+                    .lineLimit(1)
+                    .fixedSize()
                 if !keys.isEmpty {
                     if primary {
                         ForEach(keys, id: \.self) { key in
@@ -1987,8 +2059,9 @@ struct DiagnosticsPage: View {
         HStack(spacing: 6) {
             Circle().fill(color).frame(width: 6, height: 6)
             RollingText(text: model.diagnosticsRunning && model.diagnostics.isEmpty ? "–" : "\(value)", font: NB.mono(12), color: NB.t1)
-            Text(title).font(NB.small).foregroundStyle(NB.t2)
+            Text(title).font(NB.small).foregroundStyle(NB.t2).lineLimit(1)
         }
+        .fixedSize()
     }
 }
 
