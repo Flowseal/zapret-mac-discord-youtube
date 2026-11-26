@@ -11,7 +11,7 @@ RESOURCES="$CONTENTS/Resources"
 SDK=$(/usr/bin/xcrun --sdk macosx --show-sdk-path)
 SWIFTC=$(/usr/bin/xcrun -f swiftc)
 CLANG=$(/usr/bin/xcrun -f clang)
-SWIFT_SOURCES="$ROOT/macos/App/ZapretMacApp.swift $ROOT/macos/App/NimbusDesign.swift $ROOT/macos/App/NimbusHUD.swift $ROOT/macos/App/NimbusSupport.swift"
+SWIFT_SOURCES="$ROOT/macos/App/ZapretMacApp.swift $ROOT/macos/App/NimbusDesign.swift $ROOT/macos/App/NimbusHUD.swift $ROOT/macos/App/NimbusSupport.swift $ROOT/macos/App/VpnDetect.swift"
 SWIFT_FLAGS="-O -parse-as-library -sdk $SDK -framework AppKit -framework SwiftUI -framework ServiceManagement -framework Security -framework CryptoKit -framework QuartzCore"
 
 /bin/rm -rf "$BUILD"

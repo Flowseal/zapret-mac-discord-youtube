@@ -275,13 +275,34 @@ enum VpnProbe {
         return ""
     }
 
-    static func warning(for iface: String, nimbus: String = "utun50") -> String? {
+    /// Why a VPN looks active, or nil: the default route through a tunnel, a VPN client process, or an extra tunnel interface
+    /// (split-tunnel VPNs leave the default route alone).
+    static func reason(defaultInterface: String) -> String? {
+        let ifconfig = output("/sbin/ifconfig", [])
+        return TunnelProbe.reason(
+            tunnels: TunnelProbe.interfaces(ifconfig: ifconfig),
+            defaultInterface: defaultInterface,
+            processNames: ProcessTable.names()
+        )
+    }
+
+    /// Whether the default route runs through a VPN tunnel (everything goes through it, not just some networks).
+    static func defaultRouteIsTunnel(_ iface: String, nimbus: String = "utun50") -> Bool {
         let name = iface.trimmingCharacters(in: .whitespaces)
-        if name.isEmpty || name == nimbus { return nil }
-        if name.hasPrefix("utun") || name.hasPrefix("ipsec") || name.hasPrefix("ppp") || name == "wg0" {
-            return "маршрут по умолчанию через \(name)"
-        }
-        return nil
+        return !name.isEmpty && name != nimbus && (TunnelProbe.isTunnelName(name) || name.hasPrefix("ipip"))
+    }
+
+    private static func output(_ path: String, _ arguments: [String]) -> String {
+        let pipe = Pipe()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: path)
+        process.arguments = arguments
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        do { try process.run() } catch { return "" }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        return String(data: data, encoding: .utf8) ?? ""
     }
 }
 
@@ -537,6 +558,27 @@ enum ReleaseVersion {
 
 /// The kernel process table, read with sysctl (no subprocess).
 enum ProcessTable {
+    /// Short names (p_comm) of every running process; empty if sysctl failed.
+    static func names() -> [String] {
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
+        var size = 0
+        guard sysctl(&mib, 4, nil, &size, nil, 0) == 0, size > 0 else { return [] }
+        let stride = MemoryLayout<kinfo_proc>.stride
+        var count = size / stride + 32
+        var procs = [kinfo_proc](repeating: kinfo_proc(), count: count)
+        size = count * stride
+        guard sysctl(&mib, 4, &procs, &size, nil, 0) == 0 else { return [] }
+        count = size / stride
+        var seen = Set<String>()
+        for i in 0..<count {
+            let name = withUnsafeBytes(of: procs[i].kp_proc.p_comm) { raw in
+                String(decoding: raw.prefix { $0 != 0 }, as: UTF8.self)
+            }
+            if !name.isEmpty { seen.insert(name) }
+        }
+        return Array(seen)
+    }
+
     /// Whether a process with this exact short name (p_comm, like `pgrep -x`) is running; nil if sysctl failed.
     static func contains(_ name: String) -> Bool? {
         var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]

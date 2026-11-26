@@ -187,6 +187,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hudModel.openDiagnostics = { [weak self] in self?.openDiagnosticsPage() }
         hudModel.copyDiagnostics = { [weak self] in self?.copyDiagnosticsReport() }
         hudModel.toggleAutoPause = { [weak self] in self?.toggleAutoPause() }
+        hudModel.leaveAlone = loadLeaveAlone()
+        hudModel.leaveAloneChanged = { [weak self] text in self?.leaveAloneChanged(text) }
+        hudModel.commitLeaveAlone = { [weak self] in
+            guard let self else { return }
+            self.leaveAloneWork?.cancel()
+            self.saveLeaveAlone(self.hudModel.leaveAlone, normalizeField: true)
+        }
         hudModel.addBypass = { [weak self] in self?.addListEntry(exclude: false) }
         hudModel.addExclude = { [weak self] in self?.addListEntry(exclude: true) }
         hudModel.removeUserEntry = { [weak self] entry in self?.removeListEntry(entry) }
@@ -270,7 +277,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             hudModel.update(\.youtubeMs, nil)
         }
         updateStatusGlyph()
-        let layoutKey = "\(hudModel.page)|\(testing)|\(hudModel.testRows.count)|\(hudModel.testBest)|\(hudModel.testProgress)|\(hudModel.notice)|\(hudModel.lists.count)|\(hudModel.editorName)|\(hudModel.logLines.count)|\(hudModel.diagnosticsRunning)|\(hudModel.paletteOpen)|\(hudModel.vpnWarning)|\(hudModel.userEntries.count)|\(hudModel.diagnostics.count)|\(hudModel.updatingLists)"
+        let layoutKey = "\(hudModel.page)|\(testing)|\(hudModel.testRows.count)|\(hudModel.testBest)|\(hudModel.testProgress)|\(hudModel.notice)|\(hudModel.lists.count)|\(hudModel.editorName)|\(hudModel.logLines.count)|\(hudModel.diagnosticsRunning)|\(hudModel.paletteOpen)|\(hudModel.vpnWarning)|\(hudModel.vpnNote)|\(hudModel.userEntries.count)|\(hudModel.diagnostics.count)|\(hudModel.updatingLists)"
         if hud.isVisible, layoutKey != lastLayoutKey {
             lastLayoutKey = layoutKey
             hud.relayout()
@@ -1003,35 +1010,74 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DispatchQueue.global(qos: .utility).async { [weak self] in
             let interface = VpnProbe.defaultInterface()
             let address = SystemInfo.ipv4Address(of: interface)
+            let reason = VpnProbe.reason(defaultInterface: interface)
             DispatchQueue.main.async {
                 guard let self else { return }
                 self.vpnProbing = false
-                self.applyVpnState(interface: interface, address: address)
+                self.applyVpnState(interface: interface, address: address, reason: reason)
             }
         }
     }
 
-    private func applyVpnState(interface: String, address: String) {
+    private func applyVpnState(interface: String, address: String, reason: String?) {
         hudModel.update(\.networkInterface, interface)
         hudModel.update(\.networkAddress, address)
-        let warning = VpnProbe.warning(for: interface)
-        hudModel.update(\.vpnWarning, warning ?? "")
+        // VPN traffic is left alone, so a VPN is a note, not a warning; only a client that takes over every connection is
+        let fullTunnel = reason.map(TunnelProbe.isFullTunnelClient) ?? false
+        hudModel.update(\.vpnWarning, fullTunnel ? "\(reason ?? "WARP") · обход не сработает" : "")
+        hudModel.update(\.vpnNote, reason != nil && !fullTunnel ? "\(reason ?? "VPN") · не трогаем" : "")
+        // auto-pause keeps its old meaning: everything goes through the VPN
+        let warning = VpnProbe.defaultRouteIsTunnel(interface)
         let auto = hudModel.autoPauseVpn
-        if auto, warning != nil, isRunning(), !testing, !busy, !updating {
+        if auto, warning, isRunning(), !testing, !busy, !updating {
             pausedByVpn = true
             runPrivileged(script: "stop.sh", arguments: []) { [weak self] failure in
                 if failure == nil { self?.showNotice("Nimbus на паузе: активен VPN") }
             }
             return
         }
-        if auto, warning == nil, pausedByVpn, !isRunning(), !testing, !busy, !updating {
+        if auto, !warning, pausedByVpn, !isRunning(), !testing, !busy, !updating {
             pausedByVpn = false
             runPrivileged(script: "install.sh", arguments: [dataRoot.path]) { [weak self] failure in
                 if failure == nil { self?.showNotice("VPN выключен, Nimbus снова включён") }
             }
             return
         }
-        if warning == nil, isRunning() { pausedByVpn = false }
+        if !warning, isRunning() { pausedByVpn = false }
+    }
+
+    // MARK: Не трогать адреса
+
+    private var leaveAloneFile: URL { dataRoot.appendingPathComponent("leave-alone") }
+    private var leaveAloneWork: DispatchWorkItem?
+
+    private func loadLeaveAlone() -> String {
+        let text = (try? String(contentsOf: leaveAloneFile, encoding: .utf8)) ?? ""
+        return LeaveAlone.parse(text).entries.joined(separator: ", ")
+    }
+
+    /// Saves the valid entries a moment after typing stops. The root service reads the file every couple of seconds
+    /// and reloads only the pf anchor, so nothing restarts.
+    private func leaveAloneChanged(_ text: String) {
+        leaveAloneWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.saveLeaveAlone(text, normalizeField: false) }
+        leaveAloneWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: work)
+    }
+
+    private func saveLeaveAlone(_ text: String, normalizeField: Bool) {
+        let parsed = LeaveAlone.parse(text)
+        do {
+            try (parsed.entries.joined(separator: "\n") + (parsed.entries.isEmpty ? "" : "\n")).write(to: leaveAloneFile, atomically: true, encoding: .utf8)
+        } catch {
+            showError(error.localizedDescription)
+            return
+        }
+        if normalizeField {
+            let normalized = parsed.entries.joined(separator: ", ")
+            if normalized != text { hudModel.leaveAlone = normalized }
+            if !parsed.invalid.isEmpty { showError("Не распознал: " + parsed.invalid.prefix(3).joined(separator: ", ")) }
+        }
     }
 
     private func toggleAutoPause() {

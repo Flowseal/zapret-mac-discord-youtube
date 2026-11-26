@@ -77,7 +77,7 @@ if [ -n "$IFACE" ] && [ -n "$GATEWAY" ]; then
     esac
     case "$IFACE" in
         utun50) row OK 'маршрут IPv4' "$DETAIL" ;;
-        utun*|ipsec*|ppp*) row WARN 'маршрут IPv4' "VPN/туннель: $DETAIL" ;;
+        utun*|ipsec*|ppp*) row OK 'маршрут IPv4' "через туннель, Nimbus работает на физическом интерфейсе: $DETAIL" ;;
         *) row OK 'маршрут IPv4' "$DETAIL" ;;
     esac
 else
@@ -96,7 +96,7 @@ if /sbin/route -n get -inet6 default >/tmp/nimbus-diag-route6 2>/dev/null; then
     if [ -n "$MAC6" ]; then DETAIL="$DETAIL, MAC $MAC6"; fi
     case "$IFACE6" in
         utun50) row OK 'маршрут IPv6' "$DETAIL" ;;
-        utun*|ipsec*|ppp*) row WARN 'маршрут IPv6' "VPN/туннель: $DETAIL" ;;
+        utun*|ipsec*|ppp*) row OK 'маршрут IPv6' "через туннель, Nimbus работает на физическом интерфейсе: $DETAIL" ;;
         *) row OK 'маршрут IPv6' "$DETAIL" ;;
     esac
     if /sbin/ifconfig utun50 2>/dev/null | /usr/bin/grep -q 'inet6 fd77::'; then
@@ -113,14 +113,20 @@ else
     row OK 'маршрут IPv6' 'системного IPv6-маршрута нет, используется только IPv4'
 fi
 
-# Known VPN processes (names only; no arguments).
+# VPN clients (names only; no arguments). Their tunnels and servers are passed through untouched,
+# so this is information; only WARP, which takes over every connection, is a warning.
 VPN_PROCS=$(/bin/ps -axo comm= 2>/dev/null | /usr/bin/awk 'BEGIN{IGNORECASE=1}
     /WireGuard|wg-quick|openvpn|CloudflareWARP|warp-svc|Amnezia|Hiddify|sing-box|singbox|xray|v2ray|Outline|tailscaled|ZeroTier|ProtonVPN|Mullvad|NordVPN|ExpressVPN|RabbitHole|rabbithole/ {print $0}' |
     /usr/bin/sed 's|.*/||' | /usr/bin/sort -u | /usr/bin/tr '\n' ', ' | /usr/bin/sed 's/,$//; s/,/, /g')
-if [ -n "$VPN_PROCS" ]; then
-    row WARN 'VPN процессы' "$VPN_PROCS"
-else
-    row OK 'VPN процессы' 'известных VPN-процессов не видно'
+TUNNELS=$(/sbin/ifconfig -l 2>/dev/null | /usr/bin/tr ' ' '\n' | /usr/bin/awk '/^(utun|ipsec|ppp|tun|tap|wg)[0-9]+$/ && $0 != "utun50"' | /usr/bin/tr '\n' ' ')
+SKIPS=$(printf '%s\n' "$RULES" | /usr/bin/grep -Ec '^pass out quick (on [{]|inet6? to)' || true)
+case "$VPN_PROCS" in
+    *WARP*|*warp*) row WARN 'VPN' "$VPN_PROCS: перехватывает все соединения, обход не сработает" ;;
+    '') row OK 'VPN' 'известных VPN-процессов не видно' ;;
+    *) row OK 'VPN' "$VPN_PROCS: трафик туннеля Nimbus не трогает (правил-пропусков: $SKIPS)" ;;
+esac
+if [ -n "$TUNNELS" ] && [ -z "$VPN_PROCS" ]; then
+    row OK 'туннели' "$TUNNELS: не трогаем"
 fi
 
 exec 1>&3

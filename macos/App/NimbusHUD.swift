@@ -127,8 +127,14 @@ final class HUDModel: ObservableObject {
     @Published var editorCaret = EditorCaret()
     @Published var notice = ""
     @Published var noticeError = false
+    /// Only for clients that take over every connection (WARP); any other VPN is a plain note.
     @Published var vpnWarning = ""
+    @Published var vpnNote = ""
     @Published var autoPauseVpn = false
+    /// "Не трогать адреса": IPs and networks Nimbus never touches, applied to the pf anchor within a couple of seconds.
+    @Published var leaveAlone = "" {
+        didSet { if leaveAlone != oldValue { leaveAloneChanged(leaveAlone) } }
+    }
     @Published var listInput = ""
     @Published var extraHost = ""
     @Published var userEntries: [UserEntry] = []
@@ -171,6 +177,8 @@ final class HUDModel: ObservableObject {
     var openDiagnostics: () -> Void = {}
     var copyDiagnostics: () -> Void = {}
     var toggleAutoPause: () -> Void = {}
+    var leaveAloneChanged: (String) -> Void = { _ in }
+    var commitLeaveAlone: () -> Void = {}
     var addBypass: () -> Void = {}
     var addExclude: () -> Void = {}
     var removeUserEntry: (UserEntry) -> Void = { _ in }
@@ -1260,12 +1268,12 @@ struct MainPage: View {
                     RowIcon(name: "point.3.connected.trianglepath.dotted", color: model.hasVpnWarning ? NB.warn : NB.t2)
                     Text("VPN")
                     Spacer(minLength: 8)
-                    Text(model.hasVpnWarning ? model.vpnWarning : "не обнаружен")
+                    Text(model.hasVpnWarning ? model.vpnWarning : (model.vpnNote.isEmpty ? "не обнаружен" : model.vpnNote))
                         .foregroundStyle(model.hasVpnWarning ? NB.warn : NB.t2)
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
-                .help(model.vpnWarning)
+                .help(model.hasVpnWarning ? model.vpnWarning : model.vpnNote)
                 .reveal(9)
             }
             .padding(.bottom, 6)
@@ -1529,10 +1537,11 @@ struct MorePage: View {
     private var settings: some View {
         let showLogin = visible("Открывать при входе") || visible("автозапуск")
         let showPause = visible("Автопауза при VPN")
+        let showLeaveAlone = visible("Не трогать адреса") || visible("исключения")
         let showUpdate = (model.canInstallUpdate || model.updating) && visible("Обновить")
         let showGit = visible("GitHub")
         let showQuit = visible("Выйти")
-        if showLogin || showPause || showUpdate || showGit || showQuit {
+        if showLogin || showPause || showLeaveAlone || showUpdate || showGit || showQuit {
             SectionLabel(title: "Параметры").reveal(11)
             if showLogin {
                 SwitchRow(icon: "rectangle.portrait.and.arrow.right", title: "Открывать при входе", isOn: model.loginEnabled, action: model.toggleLogin)
@@ -1540,6 +1549,13 @@ struct MorePage: View {
             }
             if showPause {
                 SwitchRow(icon: "pause", title: "Автопауза при VPN", isOn: model.autoPauseVpn, action: model.toggleAutoPause)
+                    .reveal(13)
+            }
+            if showLeaveAlone {
+                PanelInput(placeholder: "Не трогать адреса", text: $model.leaveAlone, icon: "eye.slash", mono: true, onSubmit: model.commitLeaveAlone)
+                    .help("IP или сеть через запятую, например 203.0.113.7, 10.8.0.0/16")
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 4)
                     .reveal(13)
             }
             if showUpdate {
