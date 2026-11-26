@@ -155,7 +155,6 @@ internal partial class HudWindow : Window
             Root.Opacity = 1;
             Root.RenderTransform = Transform.Identity;
             Root.Effect = null;
-            Root.CacheMode = null;
             if (!model.Testing) model.Page = HudPage.Main;
         };
         if (!Motion.Reduce)
