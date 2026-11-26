@@ -288,3 +288,180 @@ enum VpnProbe {
 enum MotionSettings {
     static var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
 }
+
+// MARK: - v4 panel helpers
+
+struct LogLine: Identifiable, Equatable {
+    let id: Int
+    let source: String
+    let time: String
+    let level: String
+    let text: String
+}
+
+enum LogParser {
+    /// Turns raw log text into rows. A leading `HH:MM:SS`, `[HH:MM:SS]` or ISO date-time stamp becomes the time
+    /// column; the level comes from an explicit tag or from error/warning keywords.
+    static func parse(_ text: String, source: String, startID: Int = 0) -> [LogLine] {
+        var out: [LogLine] = []
+        var id = startID
+        for raw in text.split(whereSeparator: \.isNewline) {
+            var line = String(raw).trimmingCharacters(in: .whitespaces)
+            if line.isEmpty { continue }
+            var time = "--:--:--"
+            if let match = line.range(of: #"^\[?(\d{4}-\d{2}-\d{2}[T ])?\d{2}:\d{2}:\d{2}(\.\d+)?([+-]\d{2}:?\d{2}|Z)?\]?\s*"#, options: .regularExpression) {
+                let stamp = String(line[match])
+                if let clock = stamp.range(of: #"\d{2}:\d{2}:\d{2}"#, options: .regularExpression) {
+                    time = String(stamp[clock])
+                }
+                line = String(line[match.upperBound...])
+            }
+            var level = "INF"
+            if let tag = line.range(of: #"^\[?(INF|INFO|WRN|WARN|WARNING|ERR|ERROR)\]?:?\s+"#, options: [.regularExpression, .caseInsensitive]) {
+                let word = line[tag].uppercased()
+                level = word.contains("E") && word.contains("R") && !word.contains("W") ? "ERR" : word.contains("W") ? "WRN" : "INF"
+                line = String(line[tag.upperBound...])
+            } else {
+                let lower = line.lowercased()
+                if lower.contains("error") || lower.contains("fail") || lower.contains("ошибк") || lower.contains("не удалось") || lower.contains("fatal") {
+                    level = "ERR"
+                } else if lower.contains("warn") || lower.contains("timeout") || lower.contains("retry") || lower.contains("предупрежд") {
+                    level = "WRN"
+                }
+            }
+            out.append(LogLine(id: id, source: source, time: time, level: level, text: line))
+            id += 1
+        }
+        return out
+    }
+
+    /// Plain words must all appear; `level:wrn+` keeps warnings and errors, `level:err` errors only.
+    static func matches(_ line: LogLine, query: String) -> Bool {
+        let q = query.trimmingCharacters(in: .whitespaces).lowercased()
+        if q.isEmpty { return true }
+        for token in q.split(separator: " ") {
+            if token.hasPrefix("level:") {
+                let want = token.dropFirst("level:".count)
+                let rank = ["inf": 0, "wrn": 1, "err": 2]
+                let lineRank = rank[line.level.lowercased()] ?? 0
+                if want.hasSuffix("+") {
+                    guard let need = rank[String(want.dropLast())], lineRank >= need else { return false }
+                } else {
+                    guard let need = rank[String(want)], lineRank == need else { return false }
+                }
+                continue
+            }
+            if token.hasPrefix("source:") {
+                if line.source.lowercased() != token.dropFirst("source:".count) { return false }
+                continue
+            }
+            let hay = (line.text + " " + line.source + " " + line.time).lowercased()
+            if !hay.contains(token) { return false }
+        }
+        return true
+    }
+
+    /// 52113 → "52 113" (thin non-breaking space).
+    static func groupThousands(_ value: Int) -> String {
+        let digits = String(abs(value))
+        var out = ""
+        for (i, ch) in digits.enumerated() {
+            if i > 0 && (digits.count - i) % 3 == 0 { out.append("\u{202F}") }
+            out.append(ch)
+        }
+        return value < 0 ? "-" + out : out
+    }
+}
+
+enum LatencyStats {
+    /// Linear-interpolated percentile, p in 0…1.
+    static func percentile(_ values: [Double], _ p: Double) -> Double {
+        let sorted = values.filter { $0.isFinite }.sorted()
+        guard !sorted.isEmpty else { return 0 }
+        if sorted.count == 1 { return sorted[0] }
+        let rank = min(max(p, 0), 1) * Double(sorted.count - 1)
+        let lo = Int(rank.rounded(.down))
+        let hi = min(lo + 1, sorted.count - 1)
+        return sorted[lo] + (sorted[hi] - sorted[lo]) * (rank - Double(lo))
+    }
+}
+
+enum EngineClock {
+    static func format(_ seconds: TimeInterval) -> String {
+        let s = max(0, Int(seconds))
+        return String(format: "%02d:%02d:%02d", s / 3600, (s / 60) % 60, s % 60)
+    }
+
+    /// `ps` etime: [[dd-]hh:]mm:ss → seconds.
+    static func parseElapsed(_ text: String) -> TimeInterval? {
+        let trimmed = text.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty else { return nil }
+        var days = 0
+        var rest = Substring(trimmed)
+        if let dash = rest.firstIndex(of: "-") {
+            guard let d = Int(rest[..<dash]) else { return nil }
+            days = d
+            rest = rest[rest.index(after: dash)...]
+        }
+        let parts = rest.split(separator: ":").map { Int($0) }
+        guard !parts.isEmpty, parts.allSatisfy({ $0 != nil }) else { return nil }
+        let nums = parts.compactMap { $0 }
+        var total = 0
+        for n in nums { total = total * 60 + n }
+        return TimeInterval(days * 86_400 + total)
+    }
+
+    /// Start time of the running engine (utunws), read from `ps`.
+    static func engineStartDate() -> Date? {
+        let pipe = Pipe()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = ["-axo", "etime=,comm="]
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        do { try process.run() } catch { return nil }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        let text = String(data: data, encoding: .utf8) ?? ""
+        for line in text.split(whereSeparator: \.isNewline) {
+            let parts = line.split(maxSplits: 1, whereSeparator: \.isWhitespace)
+            guard parts.count == 2, parts[1].hasSuffix("utunws") else { continue }
+            if let elapsed = parseElapsed(String(parts[0])) {
+                return Date().addingTimeInterval(-elapsed)
+            }
+        }
+        return nil
+    }
+}
+
+enum SystemInfo {
+    static var summary: String {
+        let v = ProcessInfo.processInfo.operatingSystemVersion
+        let version = v.patchVersion > 0 ? "\(v.majorVersion).\(v.minorVersion).\(v.patchVersion)" : "\(v.majorVersion).\(v.minorVersion)"
+        #if arch(arm64)
+        let arch = "arm64"
+        #else
+        let arch = "x86_64"
+        #endif
+        return "macOS \(version) · \(arch)"
+    }
+
+    /// First IPv4 address of an interface (en0 …) via getifaddrs.
+    static func ipv4Address(of interface: String) -> String {
+        guard !interface.isEmpty else { return "" }
+        var head: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&head) == 0, let first = head else { return "" }
+        defer { freeifaddrs(head) }
+        var cursor: UnsafeMutablePointer<ifaddrs>? = first
+        while let entry = cursor {
+            defer { cursor = entry.pointee.ifa_next }
+            guard let addr = entry.pointee.ifa_addr, addr.pointee.sa_family == sa_family_t(AF_INET) else { continue }
+            guard String(cString: entry.pointee.ifa_name) == interface else { continue }
+            var host = [CChar](repeating: 0, count: Int(NI_MAXHOST))
+            if getnameinfo(addr, socklen_t(addr.pointee.sa_len), &host, socklen_t(host.count), nil, 0, NI_NUMERICHOST) == 0 {
+                return String(cString: host)
+            }
+        }
+        return ""
+    }
+}

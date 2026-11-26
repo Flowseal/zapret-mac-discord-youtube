@@ -69,9 +69,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var authorization: AuthorizationRef?
     private var lastServiceProbe = Date.distantPast
     private var lastLayoutKey = ""
-    private var lastIconRunning: Bool?
-    private var iconTimer: Timer?
-    private var iconPhase: Double = 0
+    private var glyph: StatusGlyphAnimator?
+    private var engineWasRunning = false
     private var noticeTimer: Timer?
     private var pausedByVpn = false
     private var lastVpnProbe = Date.distantPast
@@ -154,20 +153,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func templateCloud(running: Bool) -> NSImage? {
-        let name = running ? "cloud.fill" : "cloud"
-        let config = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
-        guard let image = NSImage(systemSymbolName: name, accessibilityDescription: "Nimbus")?
-            .withSymbolConfiguration(config) else { return nil }
-        image.isTemplate = true
-        return image
-    }
-
     private func buildStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            button.image = templateCloud(running: false)
-            button.image?.isTemplate = true
+            glyph = StatusGlyphAnimator(button: button)
+            button.toolTip = "Nimbus"
             button.target = self
             button.action = #selector(toggleHUD)
             button.sendAction(on: [.leftMouseUp])
@@ -209,11 +199,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func refreshHUD() {
         guard statusItem != nil else { return }
         let running = isRunning()
-        updateMenuCloud(running: running)
         let selectedStrategy = readState(from: dataRoot.appendingPathComponent("selected-strategy"))
         let selectedIPSet = readState(from: dataRoot.appendingPathComponent("ipset-mode"))
         hudModel.running = running
         hudModel.busy = busy
+        if !busy { hudModel.switchIntent = nil }
+        hudModel.appVersion = displayVersion(currentVersion)
+        if running != engineWasRunning || (running && hudModel.engineStarted == nil) {
+            engineWasRunning = running
+            hudModel.engineStarted = running ? (EngineClock.engineStartDate() ?? Date()) : nil
+            if !running { hudModel.latencySamples = [] }
+        }
         hudModel.testing = testing
         hudModel.cancellingTest = cancellingTest
         hudModel.updating = updating
@@ -241,7 +237,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             hudModel.testEnabled = !busy
         }
         if hudModel.page == .logs {
-            hudModel.logs = loadDiagnostics(limit: 90)
+            loadLogs()
         }
         if hudModel.page == .lists {
             hudModel.lists = listInfos()
@@ -262,8 +258,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if !running {
             hudModel.discord = .off
             hudModel.youtube = .off
+            hudModel.discordMs = nil
+            hudModel.youtubeMs = nil
         }
-        let layoutKey = "\(hudModel.page)|\(testing)|\(hudModel.testRows.count)|\(hudModel.testBest)|\(hudModel.testProgress)|\(hudModel.notice)|\(hudModel.lists.count)|\(hudModel.editorName)|\(hudModel.logs.count)|\(hudModel.vpnWarning)|\(hudModel.userEntries.count)|\(hudModel.diagnostics.count)|\(hudModel.updatingLists)"
+        updateStatusGlyph()
+        let layoutKey = "\(hudModel.page)|\(testing)|\(hudModel.testRows.count)|\(hudModel.testBest)|\(hudModel.testProgress)|\(hudModel.notice)|\(hudModel.lists.count)|\(hudModel.editorName)|\(hudModel.logLines.count)|\(hudModel.diagnosticsRunning)|\(hudModel.paletteOpen)|\(hudModel.vpnWarning)|\(hudModel.userEntries.count)|\(hudModel.diagnostics.count)|\(hudModel.updatingLists)"
         if hud.isVisible, layoutKey != lastLayoutKey {
             lastLayoutKey = layoutKey
             hud.relayout()
@@ -300,19 +299,45 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         lastServiceProbe = Date()
         if hudModel.discord == .off || hudModel.discord == .unknown { hudModel.discord = .checking }
         if hudModel.youtube == .off || hudModel.youtube == .unknown { hudModel.youtube = .checking }
-        probeURL("https://discord.com/") { [weak self] ok in
-            self?.hudModel.discord = ok ? .ok : .bad
+        updateStatusGlyph()
+        probeURL("https://discord.com/") { [weak self] ok, ms in
+            guard let self else { return }
+            self.hudModel.discord = ok ? .ok : .bad
+            self.hudModel.discordMs = ok ? ms : nil
+            self.hudModel.lastProbe = Date()
+            self.updateStatusGlyph()
         }
-        probeURL("https://www.youtube.com/") { [weak self] ok in
-            self?.hudModel.youtube = ok ? .ok : .bad
+        probeURL("https://www.youtube.com/") { [weak self] ok, ms in
+            guard let self else { return }
+            self.hudModel.youtube = ok ? .ok : .bad
+            self.hudModel.youtubeMs = ok ? ms : nil
+            self.hudModel.lastProbe = Date()
+            // the history chart follows the slower, video side of the bypass
+            var samples = self.hudModel.latencySamples
+            samples.append(ok ? Double(ms) : .nan)
+            if samples.count > 40 { samples.removeFirst(samples.count - 40) }
+            self.hudModel.latencySamples = samples
+            self.updateStatusGlyph()
         }
     }
 
-    private func probeURL(_ raw: String, done: @escaping (Bool) -> Void) {
+    private func updateStatusGlyph() {
+        glyph?.set(hudModel.phase)
+        statusItem?.button?.toolTip = "Nimbus — " + hudModel.heroTitle.lowercased()
+    }
+
+    private func refreshNetwork() {
+        let interface = VpnProbe.defaultInterface()
+        hudModel.networkInterface = interface
+        hudModel.networkAddress = SystemInfo.ipv4Address(of: interface)
+    }
+
+    private func probeURL(_ raw: String, done: @escaping (Bool, Int) -> Void) {
         guard let url = URL(string: raw) else {
-            done(false)
+            done(false, 0)
             return
         }
+        let started = Date()
         var request = URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 3)
         request.httpMethod = "GET"
         URLSession.shared.dataTask(with: request) { _, response, error in
@@ -324,7 +349,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             } else {
                 ok = false
             }
-            DispatchQueue.main.async { done(ok) }
+            let ms = Int((Date().timeIntervalSince(started) * 1000).rounded())
+            DispatchQueue.main.async { done(ok, ms) }
         }.resume()
     }
 
@@ -404,6 +430,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         hudModel.editorName = name
         hudModel.editorTitle = Self.listTitle(name)
         hudModel.editorText = (try? String(contentsOf: url, encoding: .utf8)) ?? ""
+        hudModel.editorOriginal = hudModel.editorText
+        hudModel.editorCaret = EditorCaret()
         hudModel.page = .editor
         hud.relayout()
     }
@@ -422,14 +450,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func openLogsPage() {
-        hudModel.logs = loadDiagnostics(limit: 90)
+        loadLogs()
         hudModel.page = .logs
         hud.relayout()
     }
 
     private func copyLogs() {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(hudModel.logs, forType: .string)
+        let visible = hudModel.visibleLogLines
+        let text = visible.isEmpty ? hudModel.logs : visible.map { "\($0.time) \($0.level) \($0.source) \($0.text)" }.joined(separator: "\n")
+        NSPasteboard.general.setString(text, forType: .string)
         showNotice("Логи скопированы")
     }
 
@@ -497,12 +527,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             let user = name.contains("-user")
             return ListInfo(
                 id: name,
-                title: Self.listTitle(name),
-                detail: size > 80_000 ? "\(lines) строк · открыть" : "\(lines) строк",
+                title: name,
+                detail: Self.listTitle(name) + (size > 80_000 ? " · \(lines) строк · открыть во внешнем редакторе" : " · \(lines) строк"),
                 badge: user ? "свои" : "",
-                external: size > 80_000
+                external: size > 80_000,
+                lines: lines
             )
         }
+    }
+
+    /// Last lines of zapret.log (source "nimbus") and engine.log (source "engine") for the Логи page.
+    private func loadLogs(limit: Int = 400) {
+        hudModel.logs = loadDiagnostics(limit: 90)
+        let root = URL(fileURLWithPath: "/Library/Application Support/ZapretMac", isDirectory: true)
+        var rows: [LogLine] = []
+        for (name, source) in [("zapret.log", "nimbus"), ("engine.log", "engine")] {
+            guard let text = try? String(contentsOf: root.appendingPathComponent(name), encoding: .utf8) else { continue }
+            let tail = text.split(whereSeparator: \.isNewline).suffix(limit).joined(separator: "\n")
+            rows += LogParser.parse(tail, source: source, startID: rows.count)
+        }
+        if rows != hudModel.logLines { hudModel.logLines = rows }
     }
 
     private func loadDiagnostics(limit: Int = 18) -> String {
@@ -877,38 +921,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         loadDiagnostics(limit: 18)
     }
 
-    private func updateMenuCloud(running: Bool) {
-        guard let button = statusItem.button else { return }
-        button.toolTip = running ? "Nimbus включён" : "Nimbus выключен"
-        button.contentTintColor = nil
-        if lastIconRunning != running {
-            lastIconRunning = running
-            button.image = templateCloud(running: running)
-            button.image?.isTemplate = true
-            if running {
-                startCloudBreath()
-            } else {
-                iconTimer?.invalidate()
-                iconTimer = nil
-                iconPhase = 0
-                button.alphaValue = 1
-            }
-        }
-    }
-
-    private func startCloudBreath() {
-        iconTimer?.invalidate()
-        let timer = Timer(timeInterval: 1.0 / 24.0, repeats: true) { [weak self] _ in
-            guard let self, let button = self.statusItem.button else { return }
-            self.iconPhase += (2 * .pi) / (24 * 2.6)
-            let wave = (sin(self.iconPhase) + 1) / 2
-            button.alphaValue = 0.58 + 0.42 * wave
-        }
-        timer.tolerance = 0.01
-        RunLoop.main.add(timer, forMode: .common)
-        iconTimer = timer
-    }
-
     private func showNotice(_ message: String, error: Bool = false) {
         hudModel.notice = message
         hudModel.noticeError = error
@@ -980,6 +992,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let now = Date()
         if now.timeIntervalSince(lastVpnProbe) < 4 { return }
         lastVpnProbe = now
+        refreshNetwork()
         let warning = VpnProbe.warning(for: VpnProbe.defaultInterface())
         hudModel.vpnWarning = warning ?? ""
         let auto = hudModel.autoPauseVpn
@@ -1091,13 +1104,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func openDiagnosticsPage() {
+        guard !hudModel.diagnosticsRunning else {
+            hudModel.page = .diagnostics
+            return
+        }
         hudModel.page = .diagnostics
+        hudModel.diagnostics = []
+        hudModel.diagnosticsRunning = true
+        hudModel.diagnosticsElapsed = 0
+        let started = Date()
         hud.relayout()
         let out = dataRoot.appendingPathComponent("diagnostics.txt")
         try? fileManager.removeItem(at: out)
         runPrivileged(script: "diagnose.sh", arguments: [out.path, String(getuid()), String(getgid())]) { [weak self] failure in
             guard let self else { return }
             let text = (try? String(contentsOf: out, encoding: .utf8)) ?? ""
+            self.hudModel.diagnosticsElapsed = Date().timeIntervalSince(started)
+            self.hudModel.diagnosticsRunning = false
             self.hudModel.diagnostics = Self.parseDiagnosticRows(text)
             self.hudModel.diagnosticText = Self.formatDiagnosticReport(self.hudModel.diagnostics)
             self.hudModel.page = .diagnostics
