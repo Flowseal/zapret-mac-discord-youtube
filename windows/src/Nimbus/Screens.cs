@@ -19,70 +19,100 @@ internal static class Screens
         Directory.CreateDirectory(dir);
         var app = new Application { ShutdownMode = ShutdownMode.OnExplicitShutdown };
         var strategies = StrategyCatalog.Parse(Payload.ReadText("payload/strategies.tsv"));
+        Theme.ForceReduceMotion = true;
+        var started = DateTime.Now.AddHours(-2).AddMinutes(-14);
+        var samples = new double[] { 52, 48, 47, 55, 61, 50, 46, 44, 49, 58, 63, 57, 51, 47, 45, 48, 53, 49, 46, 44, 47, 52, 56, 50, 46, 43, 45, 49, 51, 48, 46, 44, 46, 50, 47, 45, 44, 46, 48, 47 };
+        void On(HudModel m)
+        {
+            m.Running = true;
+            m.LoginEnabled = true;
+            m.IpsetMode = IpsetModes.Loaded;
+            m.GameFilterMode = GameFilterModes.Games;
+            m.Discord = ServiceHealth.Ok;
+            m.YouTube = ServiceHealth.Ok;
+            m.DiscordMs = 38;
+            m.YouTubeMs = 47;
+            m.LatencySamples = samples;
+            m.LastProbe = DateTime.Now.AddSeconds(-4);
+            m.EngineStarted = started;
+            m.NetworkInterface = "Wi-Fi";
+            m.NetworkAddress = "192.168.1.24";
+        }
         foreach (var light in new[] { false, true })
         {
             Theme.Apply(app.Resources, light);
             var theme = light ? "light" : "dark";
-            Shoot(dir, $"{theme}-1-main-off", strategies, m => { });
-            Shoot(dir, $"{theme}-2-main-on", strategies, m =>
+            Shoot(dir, $"{theme}-01-main", strategies, On);
+            Shoot(dir, $"{theme}-02-main-problem", strategies, m =>
             {
-                m.Running = true;
-                m.LoginEnabled = true;
-                m.IpsetMode = IpsetModes.Loaded;
-                m.GameFilterMode = GameFilterModes.Games;
-                m.Discord = ServiceHealth.Ok;
-                m.YouTube = ServiceHealth.Ok;
+                On(m);
+                m.YouTube = ServiceHealth.Bad;
+                m.YouTubeMs = null;
             });
-            Shoot(dir, $"{theme}-3-main-testing", strategies, m =>
+            Shoot(dir, $"{theme}-03-main-off", strategies, m => { m.NetworkInterface = "Wi-Fi"; m.NetworkAddress = "192.168.1.24"; });
+            Shoot(dir, $"{theme}-04-main-testing", strategies, m =>
             {
-                m.Running = true;
+                On(m);
                 m.Testing = true;
                 m.Discord = ServiceHealth.Checking;
                 m.YouTube = ServiceHealth.Checking;
                 m.TestProgress = "Стратегия 4/21: general (ALT3)";
             });
-            Shoot(dir, $"{theme}-4-more-results", strategies, m =>
+            Shoot(dir, $"{theme}-05-more", strategies, m =>
             {
-                m.Running = true;
+                On(m);
                 m.Page = HudPage.More;
                 m.TestRows = strategies.Take(5).Select((s, i) => new TestRow(s.Name, i == 4 ? "ошибка" : $"{20 + i}/27", i == 3)).ToList();
                 m.TestBest = $"Лучшая: {strategies[3].Name} (23/27)";
                 m.ApplyBestEnabled = true;
             });
-            Shoot(dir, $"{theme}-5-diagnostics", strategies, m =>
+            Shoot(dir, $"{theme}-06-logs", strategies, m =>
             {
-                m.Running = true;
-                m.Page = HudPage.Diagnostics;
-                m.VpnWarning = "маршрут через utun3";
-                m.Diagnostics = new[]
-                {
-                    new DiagnosticViewRow("OK", "winws", "работает копия Nimbus", false),
-                    new DiagnosticViewRow("WARN", "VPN", "WireGuard", true),
-                    new DiagnosticViewRow("FAIL", "TCP timestamps", "выключены", true),
-                };
-                m.DiagnosticText = "Nimbus 1.5.0\n";
-                m.TestTitle = "Повторить тест";
-            });
-            Shoot(dir, $"{theme}-6-logs", strategies, m =>
-            {
+                On(m);
                 m.Page = HudPage.Logs;
-                m.Logs = "— nimbus.log —\n2026-11-22 17:40:01 started\n\n— engine.log —\n2026-11-22 17:40:02 — запуск: general-simple-fake, пресет none —\n2026-11-22 17:40:02 windivert initialized. capture is started.";
+                m.LogLines = LogParser.Parse(
+                    "2026-11-26 17:40:01 started\n2026-11-26 17:40:02 — запуск: general (SIMPLE FAKE), пресет none —\n2026-11-26 17:40:02 windivert initialized. capture is started.\n2026-11-26 17:41:10 warning: retransmission to 162.159.130.234\n2026-11-26 17:42:33 error: connect timeout googlevideo.com",
+                    "engine");
             });
-            Shoot(dir, $"{theme}-7-lists", strategies, m =>
+            Shoot(dir, $"{theme}-07-lists", strategies, m =>
             {
+                On(m);
                 m.Page = HudPage.Lists;
                 m.ListInput = "";
                 m.UserEntries = new[] { new UserEntryRow(UserLists.BypassDomains, "chatgpt.com"), new UserEntryRow(UserLists.ExcludeDomains, "gosuslugi.ru") };
-                m.Lists = ListCatalog.Names.Select((n, i) => new ListRow(ListCatalog.Describe(n, n == "ipset-all.txt" ? 500_000 : 100, "a\nb\n"), i > 0)).ToList();
+                m.Lists = ListCatalog.Names.Select((n, i) => new ListRow(ListCatalog.Describe(n, n == "ipset-all.txt" ? 500_000 : 100, string.Join("\n", Enumerable.Range(0, 40 + i * 37).Select(k => $"host{k}.com"))), i > 0)).ToList();
             });
-            Shoot(dir, $"{theme}-8-editor", strategies, m =>
+            Shoot(dir, $"{theme}-08-editor", strategies, m =>
             {
+                On(m);
                 m.Page = HudPage.Editor;
+                m.EditorName = "list-general.txt";
                 m.EditorTitle = "Основные";
-                m.EditorText = "discord.com\nyoutube.com\nexample.org\n";
-                m.Notice = "Сохранено";
+                m.EditorOriginal = "# Discord\ndiscord.com\ndiscord.gg\n# YouTube\nyoutube.com\ngooglevideo.com\n";
+                m.EditorText = m.EditorOriginal + "example.org\n";
+                m.CaretText = "Ln 7, Col 12";
             });
-            Shoot(dir, $"{theme}-9-error", strategies, m =>
+            Shoot(dir, $"{theme}-09-diagnostics", strategies, m =>
+            {
+                On(m);
+                m.Page = HudPage.Diagnostics;
+                m.DiagnosticsElapsed = 1.4;
+                m.Diagnostics = new[]
+                {
+                    new DiagnosticViewRow("OK", "winws", "работает копия Nimbus", false),
+                    new DiagnosticViewRow("OK", "DNS", "discord.com → 162.159.130.234", true),
+                    new DiagnosticViewRow("WARN", "VPN", "WireGuard", true),
+                    new DiagnosticViewRow("FAIL", "TCP timestamps", "выключены", true),
+                };
+                m.DiagnosticText = "Nimbus " + Updater.CurrentVersion + "\n";
+            });
+            Shoot(dir, $"{theme}-10-cmdk", strategies, m =>
+            {
+                On(m);
+                m.OpenPalette();
+                m.PaletteQuery = "ло";
+            });
+            Shoot(dir, $"{theme}-11-error", strategies, m =>
             {
                 m.Notice = "winws не запустился.\n\nerror opening filter: access denied";
                 m.NoticeError = true;
@@ -93,14 +123,14 @@ internal static class Screens
 
     private static void Shoot(string dir, string name, System.Collections.Generic.IReadOnlyList<Strategy> strategies, Action<HudModel> setup)
     {
-        var model = new HudModel { Strategies = strategies, StrategyName = "general (SIMPLE FAKE)", SelectedStrategyId = StrategyCatalog.DefaultId, VersionTitle = "Версия " + Updater.CurrentVersion };
+        var model = new HudModel { Strategies = strategies, StrategyName = "general (SIMPLE FAKE)", SelectedStrategyId = StrategyCatalog.DefaultId, VersionTitle = "Версия " + Updater.CurrentVersion, AppVersion = Updater.CurrentVersion };
         setup(model);
         var window = new HudWindow(model) { Left = -20000, Top = -20000, ShowActivated = false };
         window.Show();
         window.UpdateLayout();
         var root = (FrameworkElement)window.Content;
         const double scale = 2;
-        // the root grid has an 8 px margin (room for the shadow); include it on every side
+        // the root grid has an 18 px margin (room for the hairline panel's shadow); include it on every side
         var width = root.ActualWidth + root.Margin.Left + root.Margin.Right;
         var height = root.ActualHeight + root.Margin.Top + root.Margin.Bottom;
         var bitmap = new RenderTargetBitmap(

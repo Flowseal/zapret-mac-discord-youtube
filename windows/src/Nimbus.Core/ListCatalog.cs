@@ -1,6 +1,6 @@
 namespace Nimbus.Core;
 
-public sealed record ListInfo(string Id, string Title, string Detail, string Badge, bool External);
+public sealed record ListInfo(string Id, string Title, string Detail, string Badge, bool External, int Lines = 0);
 
 public static class ListCatalog
 {
@@ -41,7 +41,8 @@ public static class ListCatalog
             Title(name),
             external ? $"{lines} строк · открыть" : $"{lines} строк",
             name.Contains("-user") ? "свои" : "",
-            external);
+            external,
+            lines);
     }
 
     /// <summary>Hostlists are read by winws line by line; keep them LF like the Mac app.</summary>

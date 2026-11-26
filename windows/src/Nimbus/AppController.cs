@@ -94,10 +94,12 @@ internal sealed class AppController
         model.OpenLists = () => { model.Lists = ListRows(); model.UserEntries = LoadUserEntries(); model.Page = HudPage.Lists; };
         model.OpenList = OpenList;
         model.SaveList = SaveList;
-        model.OpenLogs = () => { model.Logs = LoadDiagnostics(90); model.Page = HudPage.Logs; };
+        model.OpenLogs = () => { LoadLogs(); model.Page = HudPage.Logs; };
         model.CopyLogs = () =>
         {
-            try { Clipboard.SetText(model.Logs); ShowNotice("Логи скопированы"); }
+            var visible = model.VisibleLogRows;
+            var text = visible.Count == 0 ? model.Logs : string.Join("\n", visible.Select(r => $"{r.Time} {r.Level} {r.Source} {r.Text}"));
+            try { Clipboard.SetText(text); ShowNotice("Логи скопированы"); }
             catch (Exception ex) { ShowError(ex.Message); }
         };
         model.RestartService = () => { if (Engine.IsRunning) RunEngineOperation(() => Engine.Start(SelectedStrategy, SelectedIpset, gameFilterMode: SelectedGameFilter)); };
@@ -147,10 +149,17 @@ internal sealed class AppController
     private void Refresh()
     {
         var running = Engine.IsRunning;
-        tray.Update(running);
         var selected = State.Read(Paths.SelectedStrategy);
         model.Running = running;
         model.Busy = busy || testing; // the Mac app holds its privileged "busy" lock for the whole test
+        if (!model.Busy) model.SwitchIntent = null;
+        model.AppVersion = Updater.CurrentVersion;
+        if (running != engineWasRunning || (running && model.EngineStarted == null))
+        {
+            engineWasRunning = running;
+            model.EngineStarted = running ? (EngineStartTime() ?? DateTime.Now) : null;
+            if (!running) model.LatencySamples = Array.Empty<double>();
+        }
         model.Testing = testing;
         model.Updating = updating;
         model.SelectedStrategyId = selected;
@@ -169,7 +178,7 @@ internal sealed class AppController
             model.TestTitle = model.TestRows.Count == 0 ? "Тест стратегий" : "Повторить тест";
             model.TestEnabled = !busy;
         }
-        if (model.Page == HudPage.Logs) model.Logs = LoadDiagnostics(90);
+        if (model.Page == HudPage.Logs) LoadLogs();
         if (model.Page == HudPage.Lists) { model.Lists = ListRows(); model.UserEntries = LoadUserEntries(); }
         model.AutoPauseVpn = State.Read(Paths.VpnAutoPause) == "1";
         RefreshVpn();
@@ -192,7 +201,36 @@ internal sealed class AppController
         {
             model.Discord = ServiceHealth.Off;
             model.YouTube = ServiceHealth.Off;
+            model.DiscordMs = null;
+            model.YouTubeMs = null;
         }
+        UpdateTray();
+    }
+
+    private bool engineWasRunning;
+
+    private void UpdateTray() => tray.Update(model.Phase, model.HeroTitle.ToLowerInvariant());
+
+    private static DateTime? EngineStartTime()
+    {
+        try
+        {
+            return Process.GetProcessesByName("winws").Select(p => { using (p) return p.StartTime; }).OrderBy(t => t).FirstOrDefault() is { } t && t != default ? t : null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    /// <summary>nimbus.log (source "nimbus") and engine.log (source "engine") for the Логи page.</summary>
+    private void LoadLogs()
+    {
+        model.Logs = LoadDiagnostics(90);
+        var rows = new List<LogLine>();
+        foreach (var (file, source) in new[] { (Paths.AppLog, "nimbus"), (Paths.EngineLog, "engine") })
+            rows.AddRange(LogParser.Parse(Log.Tail(file, 400), source, rows.Count));
+        if (!rows.SequenceEqual(model.LogLines)) model.LogLines = rows;
     }
 
     private void RefreshLogin()
@@ -212,14 +250,30 @@ internal sealed class AppController
         lastProbe = DateTime.UtcNow;
         if (model.Discord is ServiceHealth.Off or ServiceHealth.Unknown) model.Discord = ServiceHealth.Checking;
         if (model.YouTube is ServiceHealth.Off or ServiceHealth.Unknown) model.YouTube = ServiceHealth.Checking;
-        _ = ProbeOne("https://discord.com/", ok => model.Discord = ok ? ServiceHealth.Ok : ServiceHealth.Bad);
-        _ = ProbeOne("https://www.youtube.com/", ok => model.YouTube = ok ? ServiceHealth.Ok : ServiceHealth.Bad);
+        UpdateTray();
+        _ = ProbeOne("https://discord.com/", (ok, ms) =>
+        {
+            model.Discord = ok ? ServiceHealth.Ok : ServiceHealth.Bad;
+            model.DiscordMs = ok ? ms : null;
+            model.LastProbe = DateTime.Now;
+            UpdateTray();
+        });
+        _ = ProbeOne("https://www.youtube.com/", (ok, ms) =>
+        {
+            model.YouTube = ok ? ServiceHealth.Ok : ServiceHealth.Bad;
+            model.YouTubeMs = ok ? ms : null;
+            model.LastProbe = DateTime.Now;
+            // the history chart follows the slower, video side of the bypass
+            model.LatencySamples = model.LatencySamples.Append(ok ? ms : double.NaN).TakeLast(40).ToArray();
+            UpdateTray();
+        });
     }
 
-    private static async Task ProbeOne(string url, Action<bool> done)
+    private static async Task ProbeOne(string url, Action<bool, int> done)
     {
+        var watch = Stopwatch.StartNew();
         var ok = await Net.ProbeAsync(url);
-        done(ok);
+        done(ok, (int)Math.Round(watch.Elapsed.TotalMilliseconds));
     }
 
     private void ToggleService()
@@ -455,6 +509,8 @@ internal sealed class AppController
         model.EditorName = name;
         model.EditorTitle = ListCatalog.Title(name);
         model.EditorText = File.ReadAllText(path);
+        model.EditorOriginal = model.EditorText;
+        model.CaretText = "Ln 1, Col 1";
         model.Page = HudPage.Editor;
     }
 
@@ -581,6 +637,9 @@ internal sealed class AppController
         lastVpnProbe = DateTime.UtcNow;
         var match = SystemDiagnostics.DetectVpn();
         model.VpnWarning = match.IsVpn ? (match.Reason ?? "обнаружен VPN") : "";
+        var (nicName, nicAddress) = LocalNetwork.Primary();
+        model.NetworkInterface = nicName;
+        model.NetworkAddress = nicAddress;
         var auto = model.AutoPauseVpn;
         if (auto && match.IsVpn && Engine.IsRunning && !testing && !busy && !updating)
         {
@@ -656,12 +715,27 @@ internal sealed class AppController
         return files;
     }
 
-    private void OpenDiagnostics()
+    private async void OpenDiagnostics()
     {
-        var rows = SystemDiagnostics.Collect();
+        model.Page = HudPage.Diagnostics;
+        if (model.DiagnosticsRunning) return;
+        model.Diagnostics = Array.Empty<DiagnosticViewRow>();
+        model.DiagnosticsElapsed = 0;
+        model.DiagnosticsRunning = true;
+        var watch = Stopwatch.StartNew();
+        IReadOnlyList<DiagnosticRow> rows;
+        try
+        {
+            rows = await Task.Run(SystemDiagnostics.Collect);
+        }
+        catch (Exception ex)
+        {
+            rows = new[] { new DiagnosticRow("Диагностика", DiagnosticLevel.Fail, ex.Message) };
+        }
+        model.DiagnosticsElapsed = watch.Elapsed.TotalSeconds;
+        model.DiagnosticsRunning = false;
         model.Diagnostics = rows.Select((r, i) => new DiagnosticViewRow(r.LevelText, r.Name, r.Detail, i > 0)).ToList();
         model.DiagnosticText = SystemDiagnostics.Format(rows);
-        model.Page = HudPage.Diagnostics;
     }
 
     private void CopyDiagnostics()

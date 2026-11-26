@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Linq;
 using System.Net;
 using System.Net.Http;
 using System.Net.Security;
@@ -106,4 +107,30 @@ internal static class Net
 
     /// <summary>Schannel supports TLS 1.3 starting with Windows 11 / Server 2022 (build 20348).</summary>
     public static bool SupportsTls13 => Environment.OSVersion.Version.Build >= 20348;
+}
+
+/// <summary>The interface that carries the default route, for the "Сеть" row (Wi-Fi · 192.168.1.24).</summary>
+internal static class LocalNetwork
+{
+    public static (string Name, string Address) Primary()
+    {
+        try
+        {
+            var best = System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
+                .Where(n => n.OperationalStatus == System.Net.NetworkInformation.OperationalStatus.Up
+                            && n.NetworkInterfaceType is not (System.Net.NetworkInformation.NetworkInterfaceType.Loopback or System.Net.NetworkInformation.NetworkInterfaceType.Tunnel))
+                .Select(n => (Nic: n, Props: n.GetIPProperties()))
+                .Where(x => x.Props.GatewayAddresses.Any(g => g.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork && !g.Address.Equals(IPAddress.Any)))
+                .OrderBy(x => x.Props.GetIPv4Properties()?.Index ?? int.MaxValue)
+                .FirstOrDefault();
+            if (best.Nic == null) return ("", "");
+            var address = best.Props.UnicastAddresses
+                .FirstOrDefault(a => a.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)?.Address.ToString() ?? "";
+            return (best.Nic.Name, address);
+        }
+        catch
+        {
+            return ("", "");
+        }
+    }
 }

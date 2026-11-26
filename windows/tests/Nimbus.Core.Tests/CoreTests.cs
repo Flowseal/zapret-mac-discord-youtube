@@ -197,7 +197,7 @@ public class ListTests
     public void DescribesLikeMac()
     {
         var small = ListCatalog.Describe("list-general-user.txt", 20, "a.com\n\n  \nb.com\n");
-        Assert.Equal(new ListInfo("list-general-user.txt", "Основные", "2 строк", "свои", false), small);
+        Assert.Equal(new ListInfo("list-general-user.txt", "Основные", "2 строк", "свои", false, 2), small);
         var big = ListCatalog.Describe("ipset-all.txt", 500_000, "1.1.1.1\n");
         Assert.True(big.External);
         Assert.Equal("1 строк · открыть", big.Detail);
