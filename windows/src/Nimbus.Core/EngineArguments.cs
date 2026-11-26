@@ -11,7 +11,13 @@ public static class EngineArguments
     public const string WinDivertTcp = "80,443,2053,2083,2087,2096,8443";
     public const string WinDivertUdp = "443,19294-19344,50000-50100";
 
-    public static List<string> Build(string template, string baseDir, string listsDir, string ipsetPath, char separator = '\\', string? gameFilterMode = null)
+    /// <summary>Addresses the engine leaves alone (VPN servers found at runtime plus the user's own list); rewritten while the engine runs.</summary>
+    public const string LeaveAloneFile = "ipset-exclude-vpn.txt";
+
+    /// <param name="wfIface">Pins the WinDivert filter to one interface (used while a VPN adapter is up, so tunnel traffic is never diverted).</param>
+    /// <param name="leaveAlone">Adds <see cref="LeaveAloneFile"/> as an IP exclude to every profile.</param>
+    public static List<string> Build(string template, string baseDir, string listsDir, string ipsetPath, char separator = '\\', string? gameFilterMode = null,
+        int? wfIface = null, bool leaveAlone = false)
     {
         var ports = GameFilterModes.Ports(gameFilterMode);
         var args = new List<string>
@@ -19,10 +25,12 @@ public static class EngineArguments
             "--wf-tcp=" + WinDivertTcp + (ports == null ? "" : "," + ports.Value.Tcp),
             "--wf-udp=" + WinDivertUdp + (ports == null ? "" : "," + ports.Value.Udp),
         };
-        foreach (var raw in template.Split('\n')) Append(args, raw, baseDir, listsDir, ipsetPath, separator);
+        if (wfIface is { } index) args.Add("--wf-iface=" + index + ".0");
+        var profileStart = leaveAlone;
+        foreach (var raw in template.Split('\n')) Append(args, raw, baseDir, listsDir, ipsetPath, separator, leaveAlone, ref profileStart);
         if (ports is { } game)
         {
-            foreach (var raw in GameProfiles(game.Tcp, game.Udp)) Append(args, raw, baseDir, listsDir, ipsetPath, separator);
+            foreach (var raw in GameProfiles(game.Tcp, game.Udp)) Append(args, raw, baseDir, listsDir, ipsetPath, separator, leaveAlone, ref profileStart);
         }
         return args;
     }
@@ -61,10 +69,21 @@ public static class EngineArguments
         yield return "--dpi-desync-cutoff=n3";
     }
 
-    private static void Append(List<string> args, string raw, string baseDir, string listsDir, string ipsetPath, char separator)
+    private static void Append(List<string> args, string raw, string baseDir, string listsDir, string ipsetPath, char separator, bool leaveAlone, ref bool profileStart)
     {
         var line = Translate(raw, baseDir, listsDir, ipsetPath, separator);
         if (line == null) return;
+        if (line == "--new")
+        {
+            args.Add(line);
+            profileStart = leaveAlone;
+            return;
+        }
+        if (profileStart)
+        {
+            args.Add("--ipset-exclude=" + TrimSeparators(listsDir) + separator + LeaveAloneFile);
+            profileStart = false;
+        }
         args.Add(line);
         // Always attach the user IP bypass list to the same profile that already has IP excludes.
         if (line.StartsWith("--ipset-exclude=", StringComparison.Ordinal) && line.EndsWith("ipset-exclude-user.txt", StringComparison.Ordinal))

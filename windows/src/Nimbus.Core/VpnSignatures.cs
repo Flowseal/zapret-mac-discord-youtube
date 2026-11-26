@@ -107,6 +107,67 @@ public static class VpnSignatures
         return new VpnMatch(false, null);
     }
 
+    /// <summary>
+    /// macOS `ifconfig` output: tunnel interfaces that are up and carry a real address. The system keeps a few
+    /// utun interfaces around with only an fe80:: address; those are not VPNs.
+    /// </summary>
+    public static IReadOnlyList<string> MacTunnelInterfaces(string ifconfig, string nimbusIface = "utun50")
+    {
+        var result = new List<string>();
+        string? name = null;
+        var up = false;
+        var addressed = false;
+        void Flush()
+        {
+            if (name != null && up && addressed && IsMacTunnelName(name) && name != nimbusIface) result.Add(name);
+            name = null; up = false; addressed = false;
+        }
+        foreach (var raw in ifconfig.Replace("\r\n", "\n").Split('\n'))
+        {
+            if (raw.Length > 0 && !char.IsWhiteSpace(raw[0]))
+            {
+                Flush();
+                var colon = raw.IndexOf(':');
+                if (colon <= 0) continue;
+                name = raw[..colon];
+                var flagsStart = raw.IndexOf('<');
+                var flagsEnd = raw.IndexOf('>');
+                up = flagsStart >= 0 && flagsEnd > flagsStart && raw[(flagsStart + 1)..flagsEnd].Split(',').Contains("UP");
+                continue;
+            }
+            var line = raw.Trim();
+            if (line.StartsWith("inet ", StringComparison.Ordinal)) addressed = true;
+            else if (line.StartsWith("inet6 ", StringComparison.Ordinal) && !line.StartsWith("inet6 fe80:", StringComparison.OrdinalIgnoreCase)) addressed = true;
+        }
+        Flush();
+        return result;
+    }
+
+    public static bool IsMacTunnelName(string name) =>
+        new[] { "utun", "ipsec", "ppp", "tun", "tap", "wg" }.Any(prefix =>
+            name.Length > prefix.Length && name.StartsWith(prefix, StringComparison.Ordinal) && name[prefix.Length..].All(char.IsAsciiDigit));
+
+    /// <summary>A split-tunnel VPN does not touch the default route: an extra tunnel interface or a VPN process is the tell.</summary>
+    public static VpnMatch MatchMacTunnels(IReadOnlyList<string> tunnels, string? defaultIface, IEnumerable<string> processNames)
+    {
+        var viaDefault = MatchMacDefaultRoute(defaultIface);
+        if (viaDefault.IsVpn) return viaDefault;
+        foreach (var name in processNames)
+        {
+            var process = MatchProcess(name);
+            if (process.IsVpn) return process;
+        }
+        if (tunnels.Count > 0) return new VpnMatch(true, "туннель " + tunnels[0]);
+        return new VpnMatch(false, null);
+    }
+
+    /// <summary>WARP takes over every connection, so a bypass has nothing left to work on; it is the one case worth a warning.</summary>
+    public static bool IsFullTunnelClient(string? text)
+    {
+        var lower = (text ?? "").ToLowerInvariant();
+        return lower.Contains("warp", StringComparison.Ordinal);
+    }
+
     private static bool LooksLikeTunnelType(string? type) =>
         type is not null && (
             type.Equals("Tunnel", StringComparison.OrdinalIgnoreCase) ||
