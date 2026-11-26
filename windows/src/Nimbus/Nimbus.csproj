@@ -15,7 +15,7 @@
     <ApplicationIcon>Assets\nimbus.ico</ApplicationIcon>
     <!-- Keep in sync with macos/Info.plist NimbusVersion and the release tag without "v" (CI checks this).
          FileVersion drops the "-beta.1" part, ProductVersion keeps it. -->
-    <Version>1.6.0-beta.2</Version>
+    <Version>1.6.0-beta.3</Version>
     <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
     <Product>Nimbus</Product>
     <Company>Nimbus</Company>
