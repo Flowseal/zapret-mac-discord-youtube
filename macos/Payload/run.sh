@@ -46,7 +46,9 @@ cleanup() {
     release_pf_token
 }
 
-trap cleanup EXIT INT TERM HUP
+# a signal must end the script, not just run cleanup and carry on into the loop (which would load the anchor again)
+trap cleanup EXIT
+trap 'exit 143' INT TERM HUP
 clear_intercept
 /usr/bin/pkill -9 -x utunws >/dev/null 2>&1 || true
 
@@ -184,7 +186,9 @@ fi
 TICK=0
 LOST=0
 while kill -0 "$ENGINE_PID" 2>/dev/null; do
-    sleep 2
+    # waited on, so a stop does not sit out the whole interval
+    /bin/sleep 2 &
+    wait $! || true
     TICK=$((TICK + 1))
     CURRENT=$(physical_default)
     if [ -z "$CURRENT" ]; then
