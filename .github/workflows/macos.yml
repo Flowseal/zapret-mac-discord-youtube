@@ -15,6 +15,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Shell checks and pf helper tests
         run: |
+          command -v shellcheck >/dev/null || brew install shellcheck
           shellcheck -x -S warning macos/Payload/run.sh macos/Payload/pf-lib.sh macos/tests/pf-lib-test.sh
           sh macos/tests/pf-lib-test.sh
       - name: Swift detection tests
