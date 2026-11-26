@@ -6,7 +6,7 @@ using Nimbus.Core;
 
 namespace Nimbus;
 
-/// <summary>v4 "minimal" tokens: near-black hairline panel, three text levels, one indigo accent (mirror of NB in NimbusDesign.swift).</summary>
+/// <summary>Panel colors: near-black hairline panel, three text levels, one indigo accent (mirror of NB in NimbusDesign.swift).</summary>
 internal static class Theme
 {
     public static bool AppsUseLightTheme => ReadDword("AppsUseLightTheme", 1) != 0;

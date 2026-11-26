@@ -289,7 +289,7 @@ enum MotionSettings {
     static var reduceMotion: Bool { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
 }
 
-// MARK: - v4 panel helpers
+// MARK: - Panel helpers
 
 struct LogLine: Identifiable, Equatable {
     let id: Int

@@ -1,8 +1,8 @@
 import AppKit
 import SwiftUI
 
-// Nimbus v4 "minimal" design system: tokens, the offset-N mark, motion and small controls.
-// Mirrors the approved mockups in docs/brand (dark-first, 1 px hairlines, 8 pt grid, one accent).
+// Nimbus design system: colors, the offset-N mark, motion and small controls.
+// Dark first, 1 px hairlines, 8 pt grid, one accent. Icon sources are in docs/brand.
 
 // MARK: - Tokens
 

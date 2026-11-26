@@ -179,7 +179,7 @@ internal sealed class HudModel : INotifyPropertyChanged
     public string PaletteQuery { get => paletteQuery; set { if (Set(ref paletteQuery, value)) PaletteIndex = 0; } }
     public int PaletteIndex { get => paletteIndex; set => Set(ref paletteIndex, value); }
 
-    // ---- v4 derived state ----
+    // ---- derived state ----
     public MarkState Phase => PanelPhase.Resolve(running, busy, switchIntent, testing,
         discord == ServiceHealth.Bad || youtube == ServiceHealth.Bad,
         discord == ServiceHealth.Checking || youtube == ServiceHealth.Checking);

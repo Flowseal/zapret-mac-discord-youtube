@@ -3,7 +3,7 @@ import Combine
 import QuartzCore
 import SwiftUI
 
-// The Nimbus panel (v4 "minimal"): near-black hairline panel under the menu-bar glyph,
+// The Nimbus panel: near-black hairline panel under the menu-bar glyph,
 // dense 32 pt rows, one accent, mono for technical data, ⌘K command bar, spring motion.
 
 enum ServiceHealth {
@@ -1620,7 +1620,7 @@ struct LogsPage: View {
             }
         }
         .background {
-            // "/" focuses the filter like in the mockup
+            // "/" focuses the filter
             Button("") { filterFocused = true }
                 .keyboardShortcut("/", modifiers: [])
                 .disabled(filterFocused)

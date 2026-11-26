@@ -16,7 +16,7 @@ using Nimbus.Core;
 
 namespace Nimbus;
 
-/// <summary>The v4 "minimal" panel shown from the notification area; WPF port of NimbusHUDView.</summary>
+/// <summary>The panel shown from the notification area; WPF port of NimbusHUDView.</summary>
 internal partial class HudWindow : Window
 {
     private const double ShadowMargin = 18;
