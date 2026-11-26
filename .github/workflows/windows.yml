@@ -24,7 +24,9 @@ jobs:
           [xml]$proj = Get-Content windows/src/Nimbus/Nimbus.csproj
           $win = ($proj.Project.PropertyGroup | Where-Object { $_.Version } | Select-Object -First 1).Version
           $plist = Get-Content macos/Info.plist -Raw
-          $mac = [regex]::Match($plist, '<key>CFBundleShortVersionString</key>\s*<string>([^<]+)</string>').Groups[1].Value
+          # NimbusVersion holds the full version ("1.6.0-beta.2"); CFBundleShortVersionString only "1.6.0"
+          $mac = [regex]::Match($plist, '<key>NimbusVersion</key>\s*<string>([^<]+)</string>').Groups[1].Value
+          if (-not $mac) { $mac = [regex]::Match($plist, '<key>CFBundleShortVersionString</key>\s*<string>([^<]+)</string>').Groups[1].Value }
           if ($win -ne $mac) { throw "Windows version $win != macOS version $mac" }
           Write-Host "Version $win"
 
