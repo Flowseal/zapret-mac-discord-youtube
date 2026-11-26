@@ -287,7 +287,7 @@ struct MarkView: View {
 
     var body: some View {
         let target = MarkParams.target(state)
-        TimelineView(.animation(minimumInterval: 1 / 60, paused: state != .checking || Motion.reduce)) { timeline in
+        TimelineView(.animation(minimumInterval: nil, paused: state != .checking || Motion.reduce)) { timeline in
             let now = timeline.date.timeIntervalSinceReferenceDate
             let band: CGFloat? = state == .checking ? (Motion.reduce ? 5 : MarkGeometry.band(at: now, start: sweepStart)) : nil
             MarkShapeView(fill: target.fill, outline: target.outline, gap: target.gap, band: band, color: color)
@@ -680,9 +680,9 @@ struct LatencyBars: View {
                 let v = padded[i]
                 let last = i == count - 1
                 let h: CGFloat = v.isFinite ? 3 + CGFloat((min(v, hi) - lo) / (hi - lo)) * 23 : 2
-                RoundedRectangle(cornerRadius: 1, style: .continuous)
+                BarShape(height: grown ? h : 2)
                     .fill(last && v.isFinite ? (alert ? NB.warn : NB.accent) : NB.line2)
-                    .frame(width: 4, height: grown ? h : 2)
+                    .frame(width: 4, height: 26)
                     .animation(Motion.smooth.delay(Motion.reduce ? 0 : Double(i) * 0.014), value: grown)
                     .animation(Motion.smooth, value: h)
                 if i < count - 1 { Spacer(minLength: 0) }
@@ -693,10 +693,25 @@ struct LatencyBars: View {
     }
 }
 
+/// A bottom-aligned bar whose height animates as path data, so growing bars don't re-run layout every frame.
+private struct BarShape: Shape {
+    var height: CGFloat
+
+    var animatableData: CGFloat {
+        get { height }
+        set { height = newValue }
+    }
+
+    func path(in rect: CGRect) -> Path {
+        let h = min(max(height, 0), rect.height)
+        return Path(roundedRect: CGRect(x: rect.minX, y: rect.maxY - h, width: rect.width, height: h), cornerRadius: min(1, h / 2), style: .continuous)
+    }
+}
+
 /// Small arc spinner used while a diagnostic check is running.
 struct ArcSpinner: View {
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 60, paused: Motion.reduce)) { t in
+        TimelineView(.animation(minimumInterval: nil, paused: Motion.reduce)) { t in
             let angle = Motion.reduce ? 0 : (t.date.timeIntervalSinceReferenceDate * 480).truncatingRemainder(dividingBy: 360)
             ZStack {
                 Circle().stroke(NB.line2, lineWidth: 1.5)
