@@ -148,10 +148,11 @@ struct RenderHUD {
         NSApp.activate(ignoringOtherApps: true)
         controller.window.appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         controller.show(below: anchor, on: screen)
-        RunLoop.current.run(until: Date().addingTimeInterval(1.2))
+        // CPU rendering on CI is slow; leave the open animation and row reveals plenty of time to finish
+        RunLoop.current.run(until: Date().addingTimeInterval(2.5))
         if let then {
             then(model)
-            RunLoop.current.run(until: Date().addingTimeInterval(1.2))
+            RunLoop.current.run(until: Date().addingTimeInterval(2.0))
         }
         let window = controller.window
         guard let content = window.contentView else { return }
