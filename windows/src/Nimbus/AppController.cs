@@ -27,6 +27,7 @@ internal sealed class AppController
     private CancellationTokenSource? testCancel;
     private DateTime lastProbe = DateTime.MinValue;
     private DateTime lastVpnProbe = DateTime.MinValue;
+    private bool vpnProbing;
     private bool pausedByVpn, startingSmartTest;
     private readonly List<TestRow> liveRows = new();
 
@@ -166,7 +167,7 @@ internal sealed class AppController
         model.StrategyName = strategies.FirstOrDefault(s => s.Id == selected)?.Name ?? selected;
         model.IpsetMode = SelectedIpset;
         model.GameFilterMode = SelectedGameFilter;
-        if (testing || hud.IsVisible) ProbeServices(force: false);
+        if (testing || hud.IsVisible) ProbeServices(force: false, running);
         model.ApplyBestEnabled = !testing && !busy && model.TestRows.Any(r => r.IsBest);
         if (testing)
         {
@@ -238,9 +239,9 @@ internal sealed class AppController
         Task.Run(() => Autostart.IsEnabled).ContinueWith(t => model.LoginEnabled = t.Result, TaskScheduler.FromCurrentSynchronizationContext());
     }
 
-    private void ProbeServices(bool force)
+    private void ProbeServices(bool force, bool? running = null)
     {
-        if (!Engine.IsRunning)
+        if (!(running ?? Engine.IsRunning))
         {
             model.Discord = ServiceHealth.Off;
             model.YouTube = ServiceHealth.Off;
@@ -633,11 +634,20 @@ internal sealed class AppController
 
     private void RefreshVpn()
     {
-        if ((DateTime.UtcNow - lastVpnProbe).TotalSeconds < 4) return;
+        if (vpnProbing || (DateTime.UtcNow - lastVpnProbe).TotalSeconds < 4) return;
         lastVpnProbe = DateTime.UtcNow;
-        var match = SystemDiagnostics.DetectVpn();
+        vpnProbing = true;
+        // walking adapters and processes takes tens of ms: keep it off the UI thread so animations don't stall
+        Task.Run(() => (Match: SystemDiagnostics.DetectVpn(), Nic: LocalNetwork.Primary())).ContinueWith(t =>
+        {
+            vpnProbing = false;
+            if (t.IsCompletedSuccessfully) ApplyVpn(t.Result.Match, t.Result.Nic.Name, t.Result.Nic.Address);
+        }, TaskScheduler.FromCurrentSynchronizationContext());
+    }
+
+    private void ApplyVpn(VpnMatch match, string nicName, string nicAddress)
+    {
         model.VpnWarning = match.IsVpn ? (match.Reason ?? "обнаружен VPN") : "";
-        var (nicName, nicAddress) = LocalNetwork.Primary();
         model.NetworkInterface = nicName;
         model.NetworkAddress = nicAddress;
         var auto = model.AutoPauseVpn;
