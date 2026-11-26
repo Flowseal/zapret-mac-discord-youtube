@@ -1406,6 +1406,7 @@ struct ServiceRow: View {
 
 struct MorePage: View {
     @ObservedObject var model: HUDModel
+    @State private var built = 0
 
     private func visible(_ title: String) -> Bool {
         let q = model.moreQuery.trimmingCharacters(in: .whitespaces).lowercased()
@@ -1431,8 +1432,8 @@ struct MorePage: View {
                 }
 
                 actions
-                sections
-                settings
+                if built >= 1 { sections }
+                if built >= 2 { settings }
             }
             .padding(.bottom, 6)
             .animation(Motion.smooth, value: model.moreQuery)
@@ -1442,6 +1443,20 @@ struct MorePage: View {
             } trailing: {
                 ActionsFooterButton(model: model)
             }
+        }
+        .onAppear { buildNext() }
+    }
+
+    /// The page has ~15 rows and three text fields, about 60 ms of view building on a slow Mac. Built
+    /// in one go that is a dropped frame the moment ⋯ is clicked, so the lower sections are mounted
+    /// on the next two run loop turns, while the transition is already moving. The page being
+    /// replaced is still on screen then, so the panel doesn't change size on the way.
+    private func buildNext() {
+        DispatchQueue.main.async {
+            var instant = Transaction()
+            instant.disablesAnimations = true
+            withTransaction(instant) { built += 1 }
+            if built < 2 { buildNext() }
         }
     }
 
