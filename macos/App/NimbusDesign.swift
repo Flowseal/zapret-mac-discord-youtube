@@ -107,18 +107,31 @@ struct BlurShift: ViewModifier {
     }
 }
 
+/// Offset + opacity only, for whole pages (see `AnyTransition.page`).
+struct PageShift: ViewModifier {
+    let x: CGFloat
+    let opacity: Double
+
+    func body(content: Content) -> some View {
+        content.offset(x: x).opacity(opacity)
+    }
+}
+
 extension AnyTransition {
     static func page(forward: Bool) -> AnyTransition {
         if Motion.reduce { return .opacity }
+        // No blur here: the Ещё, Списки, Логи and editor pages hold real text fields (AppKit views),
+        // and blurring a page with AppKit views in it makes SwiftUI render the whole page offscreen
+        // on every frame. Offset + opacity are plain layer properties and cost nothing per frame.
         let dx: CGFloat = 20
         return .asymmetric(
             insertion: .modifier(
-                active: BlurShift(x: forward ? dx : -dx, y: 0, blur: 4, opacity: 0),
-                identity: BlurShift(x: 0, y: 0, blur: 0, opacity: 1)
+                active: PageShift(x: forward ? dx : -dx, opacity: 0),
+                identity: PageShift(x: 0, opacity: 1)
             ),
             removal: .modifier(
-                active: BlurShift(x: forward ? -dx : dx, y: 0, blur: 4, opacity: 0),
-                identity: BlurShift(x: 0, y: 0, blur: 0, opacity: 1)
+                active: PageShift(x: forward ? -dx : dx, opacity: 0),
+                identity: PageShift(x: 0, opacity: 1)
             )
         )
     }
