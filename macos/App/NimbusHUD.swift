@@ -592,18 +592,28 @@ final class HUDController {
         let top = panelTop + Self.margin
         let target = NSRect(x: x, y: top - wanted - 2 * Self.margin, width: width, height: wanted + 2 * Self.margin)
 
+        let current = panel.frame
+        if panel.isVisible, animated, shrinkWork == nil, abs(current.minX - target.minX) < 0.5,
+           abs(current.maxY - target.maxY) < 0.5, abs(current.height - target.height) < 0.5 {
+            // already the right size: don't touch the window mid-animation
+            return
+        }
         shrinkWork?.cancel()
         shrinkWork = nil
-        let current = panel.frame
+        // while visible, let the next Core Animation commit draw the resized window instead of
+        // forcing a synchronous redraw in the middle of a SwiftUI transition
+        let display = !panel.isVisible || !animated
         if !panel.isVisible || !animated || target.height >= current.height - 0.5 {
             // growing (or first show): resize at once; the panel is top-aligned, so the extra room is transparent
-            panel.setFrame(target, display: true)
+            panel.setFrame(target, display: display)
         } else {
             // shrinking: keep the window until the page transition has played, then cut the empty space
-            panel.setFrame(NSRect(x: target.minX, y: top - current.height, width: width, height: current.height), display: true)
+            panel.setFrame(NSRect(x: target.minX, y: top - current.height, width: width, height: current.height), display: false)
             let work = DispatchWorkItem { [weak self] in
-                guard let self, self.panel.isVisible else { return }
-                self.panel.setFrame(target, display: true)
+                guard let self else { return }
+                self.shrinkWork = nil
+                guard self.panel.isVisible else { return }
+                self.panel.setFrame(target, display: false)
             }
             shrinkWork = work
             DispatchQueue.main.asyncAfter(deadline: .now() + (Motion.reduce ? 0.05 : 0.36), execute: work)
