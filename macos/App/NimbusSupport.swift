@@ -534,3 +534,28 @@ enum ReleaseVersion {
         return .orderedSame
     }
 }
+
+/// The kernel process table, read with sysctl (no subprocess).
+enum ProcessTable {
+    /// Whether a process with this exact short name (p_comm, like `pgrep -x`) is running; nil if sysctl failed.
+    static func contains(_ name: String) -> Bool? {
+        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_ALL, 0]
+        var size = 0
+        guard sysctl(&mib, 4, nil, &size, nil, 0) == 0, size > 0 else { return nil }
+        let stride = MemoryLayout<kinfo_proc>.stride
+        // the table can grow between the two calls
+        var count = size / stride + 32
+        var procs = [kinfo_proc](repeating: kinfo_proc(), count: count)
+        size = count * stride
+        guard sysctl(&mib, 4, &procs, &size, nil, 0) == 0 else { return nil }
+        count = size / stride
+        let wanted = Array(name.utf8.prefix(Int(MAXCOMLEN)))
+        for i in 0..<count {
+            let match = withUnsafeBytes(of: procs[i].kp_proc.p_comm) { raw in
+                Array(raw.prefix { $0 != 0 }) == wanted
+            }
+            if match { return true }
+        }
+        return false
+    }
+}

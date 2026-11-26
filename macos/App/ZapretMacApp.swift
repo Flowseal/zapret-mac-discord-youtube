@@ -77,6 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var loginChecked = false
     private var pausedByVpn = false
     private var lastVpnProbe = Date.distantPast
+    private var vpnProbing = false
     private var startingSmartTest = false
 
     private let releaseURL = URL(string: "https://api.github.com/repos/relocpe/Nimbus/releases")!
@@ -333,11 +334,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem?.button?.toolTip = "Nimbus — " + hudModel.heroTitle.lowercased()
     }
 
-    private func refreshNetwork() {
-        let interface = VpnProbe.defaultInterface()
-        hudModel.update(\.networkInterface, interface)
-        hudModel.update(\.networkAddress, SystemInfo.ipv4Address(of: interface))
-    }
 
     private func probeURL(_ raw: String, done: @escaping (Bool, Int) -> Void) {
         guard let url = URL(string: raw) else {
@@ -362,6 +358,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func isRunning() -> Bool {
+        // read the process table in place; spawning pgrep every second stalled the main thread
+        if let found = ProcessTable.contains("utunws") { return found }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/pgrep")
         process.arguments = ["-x", "utunws"]
@@ -998,10 +996,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func refreshVpnState() {
         let now = Date()
-        if now.timeIntervalSince(lastVpnProbe) < 4 { return }
+        if vpnProbing || now.timeIntervalSince(lastVpnProbe) < 4 { return }
         lastVpnProbe = now
-        refreshNetwork()
-        let warning = VpnProbe.warning(for: VpnProbe.defaultInterface())
+        vpnProbing = true
+        // `route get default` is a subprocess: run it off the main thread so it can't stall an animation
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            let interface = VpnProbe.defaultInterface()
+            let address = SystemInfo.ipv4Address(of: interface)
+            DispatchQueue.main.async {
+                guard let self else { return }
+                self.vpnProbing = false
+                self.applyVpnState(interface: interface, address: address)
+            }
+        }
+    }
+
+    private func applyVpnState(interface: String, address: String) {
+        hudModel.update(\.networkInterface, interface)
+        hudModel.update(\.networkAddress, address)
+        let warning = VpnProbe.warning(for: interface)
         hudModel.update(\.vpnWarning, warning ?? "")
         let auto = hudModel.autoPauseVpn
         if auto, warning != nil, isRunning(), !testing, !busy, !updating {
